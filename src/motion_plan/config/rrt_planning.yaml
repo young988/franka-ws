@@ -1,0 +1,34 @@
+# Minimal planner settings for the custom RRT planner plugin.
+planner_configs:
+  RRTBaseline:
+    range: 0.18
+    min_step_size: 0.18
+    goal_bias: 0.1
+    max_planning_time: 0.0
+    max_iterations: 2500
+    goal_tolerance: 0.2
+    interpolation_step: 0.1
+    collision_check_resolution: 0.05
+    simplify_path: false
+    smoothing_iterations: 0
+    adaptive_step_size: false
+    adaptive_clearance_near: 0.05
+    adaptive_clearance_far: 0.20
+  RRTImproved:
+    range: 0.25
+    min_step_size: 0.10
+    goal_bias: 0.2
+    max_planning_time: 0.0
+    max_iterations: 2500
+    goal_tolerance: 0.2
+    interpolation_step: 0.1
+    collision_check_resolution: 0.05
+    simplify_path: true
+    smoothing_iterations: 100
+    adaptive_step_size: true
+    adaptive_clearance_near: 0.05
+    adaptive_clearance_far: 0.20
+fr3_arm:
+  planner_configs:
+    - RRTBaseline
+    - RRTImproved

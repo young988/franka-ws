@@ -1,0 +1,8 @@
+Calibration comparison
+======================
+RMS reprojection error: 0.1253 px
+
+                   fx         fy         cx         cy
+old          906.5488   906.1050   644.3069   384.8213
+new          898.9709   899.2275   642.6311   380.5782
+diff          -7.5778    -6.8775    -1.6758    -4.2431

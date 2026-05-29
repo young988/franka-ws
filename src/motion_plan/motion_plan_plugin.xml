@@ -1,0 +1,9 @@
+<library path="motion_plan">
+  <class name="motion_plan/RRTPlannerManager"
+         type="motion_plan::RRTPlannerManager"
+         base_class_type="planning_interface::PlannerManager">
+    <description>
+      RRT-based MoveIt planner plugin for the Franka FR3.
+    </description>
+  </class>
+</library>

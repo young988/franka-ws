@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>motion_plan</name>
+  <version>0.0.1</version>
+  <description>Custom MoveIt planner plugin with an RRT-based planning backend for Franka FR3.</description>
+
+  <maintainer email="whd@example.com">whd</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>eigen</depend>
+  <depend>moveit_core</depend>
+  <depend>moveit_msgs</depend>
+  <depend>moveit_ros_planning</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>franka_description</exec_depend>
+  <exec_depend>franka_fr3_moveit_config</exec_depend>
+  <exec_depend>franka_gripper</exec_depend>
+  <exec_depend>handeye_calibration</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>moveit_ros_occupancy_map_monitor</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
