@@ -222,20 +222,23 @@ class HandeyeTfPublisher(Node):
         if self._published:
             return
 
-        try:
-            cam_to_optical_msg = self._tf_buffer.lookup_transform(
-                self._optical_frame,          # target
-                self._child_frame,            # source  →  child -> optical
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=2))
-        except Exception as exc:
-            self.get_logger().info(
-                f'Waiting for TF {self._child_frame} -> {self._optical_frame} '
-                f'from camera driver … ({exc})', throttle_duration_sec=5)
-            return
+        if self._child_frame == self._optical_frame:
+            cam_to_optical = np.eye(4, dtype=np.float64)
+        else:
+            try:
+                cam_to_optical_msg = self._tf_buffer.lookup_transform(
+                    self._optical_frame,          # target
+                    self._child_frame,            # source  →  child -> optical
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=2))
+            except Exception as exc:
+                self.get_logger().info(
+                    f'Waiting for TF {self._child_frame} -> {self._optical_frame} '
+                    f'from camera driver … ({exc})', throttle_duration_sec=5)
+                return
 
-        # child -> optical
-        cam_to_optical = _matrix_from_tf(cam_to_optical_msg)
+            # child -> optical
+            cam_to_optical = _matrix_from_tf(cam_to_optical_msg)
 
         # parent -> child = (optical -> parent) @ (child -> optical)
         #   eye_in_hand:  link8 -> camera_link

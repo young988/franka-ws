@@ -12,3 +12,13 @@ backend:
     device: auto
     max_gpu_memory: 6500MiB
     max_cpu_memory: 12GiB
+  bc_isaaclab_stack:
+    required_terms: [eef_pos, eef_quat, gripper_pos, object]
+    term_shapes:
+      eef_pos: [3]
+      eef_quat: [4]
+      gripper_pos: [2]
+      object: [39]
+    checkpoint_path: src/policy_server/rl_policy/bc_cube_stack/models/model_epoch_2000.pth
+    device: auto
+    fallback_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]

@@ -23,7 +23,8 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "policy_runtime_node = franka_policy_runtime.policy_runtime_node:main",
+            "vla_policy_runtime = franka_policy_runtime.vla_node:main",
+            "bc_cube_stack_runtime = franka_policy_runtime.bc_cube_stack_node:main",
         ],
     },
 )

@@ -7,37 +7,29 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-def default_config() -> dict[str, Any]:
-    """Return server defaults.
+# Import all backends so they self-register and we can collect their defaults.
+import policy_server.backends.bc_isaaclab_stack  # noqa: F401
+import policy_server.backends.dummy               # noqa: F401
+import policy_server.backends.openvla             # noqa: F401
+import policy_server.backends.python_plugin       # noqa: F401
 
-    Local hardware can only run the 4-bit OpenVLA model, so 4-bit is the
-    default and 8-bit/full precision must be explicitly requested elsewhere.
-    """
+from policy_server.backends.base import BasePolicyBackend
+
+
+def default_config() -> dict[str, Any]:
+    """Return server defaults collected from all registered backends."""
+    backend_defaults: dict[str, Any] = {"type": "openvla"}
+    for name, cls in BasePolicyBackend._registry.items():
+        if hasattr(cls, "default_config"):
+            backend_defaults[name] = cls.default_config()
+
     return {
         "server": {
             "host": "127.0.0.1",
             "port": 8000,
             "log_level": "info",
         },
-        "backend": {
-            "type": "openvla",
-            "dummy": {
-                "action": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-            },
-            "openvla": {
-                "openvla_path": "openvla/openvla-7b",
-                "attn_implementation": "sdpa",
-                "load_in_4bit": True,
-                "load_in_8bit": False,
-                "device": "auto",
-                "max_gpu_memory": "6500MiB",
-                "max_cpu_memory": "12GiB",
-            },
-            "python_plugin": {
-                "class_path": "",
-                "params": {},
-            },
-        },
+        "backend": backend_defaults,
     }
 
 

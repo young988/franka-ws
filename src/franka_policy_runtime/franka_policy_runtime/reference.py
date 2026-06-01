@@ -1,7 +1,10 @@
 """Reference conversion helpers for policy actions.
 
-Policy actions are end-effector deltas:
-``[dx, dy, dz, droll, dpitch, dyaw, gripper]``.
+Policy actions follow IsaacLab ``DifferentialInverseKinematicsAction``:
+``[dx, dy, dz, ax, ay, az, gripper]``.
+The first six values are relative TCP pose deltas.  The angular part is
+axis-angle, and both translation and rotation are scaled before application.
+The seventh value is binary gripper command: negative closes, non-negative opens.
 The arm controller consumes joint references, so runtime code must convert the
 first six dimensions through TF + IK before publishing to the controller.  The
 seventh dimension is handled separately through the Franka gripper action API.
@@ -28,24 +31,6 @@ def split_policy_action(action: np.ndarray) -> tuple[np.ndarray, float]:
     return arr[:6].copy(), float(arr[6])
 
 
-def _rpy_from_quat_xyzw(q: np.ndarray) -> np.ndarray:
-    x, y, z, w = q
-    sinr_cosp = 2.0 * (w * x + y * z)
-    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
-    roll = math.atan2(sinr_cosp, cosr_cosp)
-
-    sinp = 2.0 * (w * y - z * x)
-    if abs(sinp) >= 1.0:
-        pitch = math.copysign(math.pi / 2.0, sinp)
-    else:
-        pitch = math.asin(sinp)
-
-    siny_cosp = 2.0 * (w * z + x * y)
-    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-    yaw = math.atan2(siny_cosp, cosy_cosp)
-    return np.array([roll, pitch, yaw], dtype=np.float64)
-
-
 def _quat_xyzw_from_rpy(rpy: np.ndarray) -> np.ndarray:
     roll, pitch, yaw = rpy
     cr = math.cos(roll * 0.5)
@@ -54,13 +39,28 @@ def _quat_xyzw_from_rpy(rpy: np.ndarray) -> np.ndarray:
     sp = math.sin(pitch * 0.5)
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
-    quat = np.array([
+    return np.array([
         sr * cp * cy - cr * sp * sy,
         cr * sp * cy + sr * cp * sy,
         cr * cp * sy - sr * sp * cy,
         cr * cp * cy + sr * sp * sy,
     ], dtype=np.float64)
-    return quat / np.linalg.norm(quat)
+
+
+def _quat_xyzw_from_axis_angle(axis_angle: np.ndarray) -> np.ndarray:
+    vec = np.asarray(axis_angle, dtype=np.float64)
+    angle = float(np.linalg.norm(vec))
+    if angle < 1.0e-6:
+        return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+    axis = vec / angle
+    half = angle * 0.5
+    sin_half = math.sin(half)
+    return np.array([
+        axis[0] * sin_half,
+        axis[1] * sin_half,
+        axis[2] * sin_half,
+        math.cos(half),
+    ], dtype=np.float64)
 
 
 def _quat_multiply_xyzw(left: np.ndarray, right: np.ndarray) -> np.ndarray:
@@ -80,14 +80,16 @@ def apply_tcp_delta(
     current_quat_xyzw: np.ndarray,
     action: np.ndarray,
     *,
-    max_translation_delta: float,
-    max_rotation_delta: float,
+    action_scale: float,
+    rotation_format: str = "axis_angle",
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Apply a clipped TCP delta in the command/base frame.
+    """Apply IsaacLab-style relative TCP delta in the command/base frame.
 
-    Translation is added directly in the command frame. Rotation deltas are RPY
-    parameters of an incremental command-frame rotation, which is composed with
-    the current quaternion instead of added to the current Euler angles.
+    Translation is added directly.  Rotation delta is axis-angle by default
+    (matching IsaacLab ``apply_delta_pose``).  Set *rotation_format* to
+    ``"rpy"`` for OpenVLA-style delta roll/pitch/yaw.
+
+    Quaternion order throughout is ROS xyzw.
     """
     position = np.asarray(current_position, dtype=np.float64)
     quat_xyzw = np.asarray(current_quat_xyzw, dtype=np.float64)
@@ -97,21 +99,38 @@ def apply_tcp_delta(
         raise ValueError(f"current_quat_xyzw must have shape (4,), got {quat_xyzw.shape}")
 
     tcp_delta, _ = split_policy_action(action)
-    translation = np.clip(
-        tcp_delta[:3],
-        -float(max_translation_delta),
-        float(max_translation_delta),
-    )
-    rotation_delta = np.clip(
-        tcp_delta[3:6],
-        -float(max_rotation_delta),
-        float(max_rotation_delta),
-    )
+    scaled_delta = tcp_delta * float(action_scale)
+    translation = scaled_delta[:3]
+    rotation_delta = scaled_delta[3:6]
     target_position = position + translation
     current_quat = quat_xyzw / np.linalg.norm(quat_xyzw)
-    delta_quat = _quat_xyzw_from_rpy(rotation_delta)
+    if rotation_format == "rpy":
+        delta_quat = _quat_xyzw_from_rpy(rotation_delta)
+    elif rotation_format == "axis_angle":
+        delta_quat = _quat_xyzw_from_axis_angle(rotation_delta)
+    else:
+        raise ValueError(f"unknown rotation_format: {rotation_format!r}")
     target_quat = _quat_multiply_xyzw(delta_quat, current_quat)
     return target_position, target_quat
+
+
+def gripper_width_from_binary_action(action_value: float, *, min_width: float, max_width: float) -> float:
+    return float(min_width if float(action_value) < 0.0 else max_width)
+
+
+def clamp_joint_step(
+    current_positions: np.ndarray,
+    target_positions: np.ndarray,
+    *,
+    max_joint_delta: float,
+) -> np.ndarray:
+    current = np.asarray(current_positions, dtype=np.float64)
+    target = np.asarray(target_positions, dtype=np.float64)
+    if current.shape != target.shape:
+        raise ValueError(f"current and target joint arrays must have the same shape, got {current.shape} and {target.shape}")
+    limit = abs(float(max_joint_delta))
+    delta = np.clip(target - current, -limit, limit)
+    return current + delta
 
 
 def make_joint_trajectory(joint_names: list[str], positions: np.ndarray, duration_sec: float):

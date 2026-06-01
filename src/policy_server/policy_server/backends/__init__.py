@@ -1,1 +1,1 @@
-"""Policy backend implementations."""
+"""Policy backend implementations — auto-registered via BasePolicyBackend.__init_subclass__."""

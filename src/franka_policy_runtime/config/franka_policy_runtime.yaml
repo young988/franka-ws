@@ -1,12 +1,18 @@
 franka_policy_runtime:
   ros__parameters:
     mode: single_step
-    observer_type: vla
     policy_url: http://127.0.0.1:8000/act
-    instruction: move the object
+    instruction: pick up the red cube
     instruction_topic: ~/instruction
     unnorm_key: bridge_orig
-    image_topic: /camera/camera/color/image_raw
+    image_topic: /eye_to_hand_camera/eye_to_hand_camera/color/image_raw
+    wrist_image_topic: /eye_in_hand_camera/eye_in_hand_camera/color/image_raw
+    depth_topic: /eye_to_hand_camera/eye_to_hand_camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /eye_to_hand_camera/eye_to_hand_camera/color/camera_info
+    object_pose_provider: none
+    object_target_color: red
+    object_camera_frame: eye_to_hand_camera_color_optical_frame
+    object_min_pixels: 30
     joint_state_topic: /joint_states
     reference_topic: /franka_policy_controller/reference
     command_frame: fr3_link0
@@ -17,8 +23,8 @@ franka_policy_runtime:
     actions_per_chunk: 1
     chunk_size_threshold: 0.5
     fusion_new_weight: 0.6
-    max_translation_delta: 0.05
-    max_rotation_delta: 0.25
+    action_scale: 0.5
+    max_joint_delta_per_tick: 0.04
     gripper_move_action: /franka_gripper/move
     gripper_min_width: 0.0
     gripper_max_width: 0.08

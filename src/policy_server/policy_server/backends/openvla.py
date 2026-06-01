@@ -23,6 +23,16 @@ SYSTEM_PROMPT = (
     "The assistant gives helpful, detailed, and polite answers to the user's questions."
 )
 
+OPENVLA_DEFAULTS = {
+    "openvla_path": "openvla/openvla-7b",
+    "attn_implementation": "sdpa",
+    "load_in_4bit": True,
+    "load_in_8bit": False,
+    "device": "auto",
+    "max_gpu_memory": "6500MiB",
+    "max_cpu_memory": "12GiB",
+}
+
 
 def get_openvla_prompt(instruction: str, openvla_path: str | Path) -> str:
     instruction = instruction.lower()
@@ -36,6 +46,10 @@ def get_openvla_prompt(instruction: str, openvla_path: str | Path) -> str:
 
 class OpenVLABackend(BasePolicyBackend):
     backend_type = "openvla"
+
+    @staticmethod
+    def default_config() -> dict[str, Any]:
+        return dict(OPENVLA_DEFAULTS)
 
     def __init__(self, params: dict[str, Any] | None = None, *, lazy_load: bool = False) -> None:
         params = params or {}
@@ -128,6 +142,14 @@ class OpenVLABackend(BasePolicyBackend):
             if is_rope and hasattr(module, "inv_freq") and module.inv_freq.device != self._device:
                 module.inv_freq = module.inv_freq.to(self._device)
         del torch_module
+
+    def predict_payload(self, payload: dict[str, Any]) -> np.ndarray:
+        image = self._decode_image_from_payload(payload)
+        return self.predict(
+            image,
+            str(payload.get("instruction", "")),
+            payload.get("unnorm_key"),
+        )
 
     def predict(
         self,

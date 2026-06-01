@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 
 from policy_server.backends.base import BasePolicyBackend, validate_action
@@ -27,19 +26,7 @@ def create_app(backend: BasePolicyBackend) -> FastAPI:
         try:
             if "encoded" in payload:
                 payload = json.loads(payload["encoded"])
-            if "image_b64" in payload:
-                import base64
-                import io
-
-                from PIL import Image as PILImage
-
-                raw = base64.b64decode(payload["image_b64"])
-                image = np.asarray(PILImage.open(io.BytesIO(raw)).convert("RGB"), dtype=np.uint8)
-            else:
-                image = np.asarray(payload["image"], dtype=np.uint8)
-            instruction = str(payload["instruction"])
-            unnorm_key = payload.get("unnorm_key")
-            action = validate_action(backend.predict(image, instruction, unnorm_key))
+            action = validate_action(backend.predict_payload(payload))
             return {"action": action.astype(float).tolist()}
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
