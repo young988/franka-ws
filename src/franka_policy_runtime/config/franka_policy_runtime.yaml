@@ -1,0 +1,33 @@
+franka_policy_runtime:
+  ros__parameters:
+    mode: single_step
+    policy_url: http://127.0.0.1:8000/act
+    instruction: move the object
+    unnorm_key: bridge_orig
+    image_topic: /camera/camera/color/image_raw
+    joint_state_topic: /joint_states
+    reference_topic: /franka_policy_controller/reference
+    command_frame: fr3_link0
+    tcp_frame: fr3_hand_tcp
+    move_group_name: fr3_arm
+    ik_service: /compute_ik
+    control_period_sec: 0.5
+    actions_per_chunk: 1
+    chunk_size_threshold: 0.5
+    fusion_new_weight: 0.6
+    max_translation_delta: 0.05
+    max_rotation_delta: 0.25
+    gripper_move_action: /franka_gripper/move
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+    gripper_initial_width: 0.04
+    gripper_speed: 0.05
+    gripper_deadband: 0.002
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7

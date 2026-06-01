@@ -1,0 +1,14 @@
+server:
+  host: 127.0.0.1
+  port: 8000
+  log_level: info
+backend:
+  type: openvla
+  openvla:
+    openvla_path: openvla/openvla-7b
+    attn_implementation: sdpa
+    load_in_4bit: true
+    load_in_8bit: false
+    device: auto
+    max_gpu_memory: 6500MiB
+    max_cpu_memory: 12GiB
