@@ -17,10 +17,12 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 from trajectory_msgs.msg import JointTrajectory
 
 from franka_policy_runtime.action_queue import ActionChunk, WeightedActionQueue
+from franka_policy_runtime.observers import RLObserver, VLAObserver
 from franka_policy_runtime.reference import (
     apply_tcp_delta,
     make_joint_trajectory,
@@ -41,8 +43,10 @@ class PolicyRuntimeNode(Node):
     def __init__(self) -> None:
         super().__init__("franka_policy_runtime")
         self.declare_parameter("mode", "single_step")
+        self.declare_parameter("observer_type", "vla")
         self.declare_parameter("policy_url", "http://127.0.0.1:8000/act")
         self.declare_parameter("instruction", "move up slightly")
+        self.declare_parameter("instruction_topic", "~/instruction")
         self.declare_parameter("unnorm_key", "bridge_orig")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
         self.declare_parameter("joint_state_topic", "/joint_states")
@@ -67,13 +71,12 @@ class PolicyRuntimeNode(Node):
 
         self._queue = WeightedActionQueue(action_dim=7)
         self._queue_lock = threading.Lock()
-        self._latest_image: np.ndarray | None = None
-        self._latest_joint_positions: np.ndarray | None = None
-        self._data_lock = threading.Lock()
+        self._observer = self._create_observer()
         self._running = True
         self._inference_thread = threading.Thread(target=self._inference_loop, daemon=True)
         self._gripper_width = float(self.get_parameter("gripper_initial_width").value)
         self._last_gripper_goal = self._gripper_width
+        self._observer.update_gripper_width(self._gripper_width)
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._ik_callback_group = ReentrantCallbackGroup()
@@ -97,6 +100,7 @@ class PolicyRuntimeNode(Node):
         )
         self.create_subscription(Image, str(self.get_parameter("image_topic").value), self._image_cb, 10)
         self.create_subscription(JointState, str(self.get_parameter("joint_state_topic").value), self._joint_state_cb, 10)
+        self.create_subscription(String, str(self.get_parameter("instruction_topic").value), self._instruction_cb, 10)
         self.create_timer(
             float(self.get_parameter("control_period_sec").value),
             self._control_tick,
@@ -112,6 +116,15 @@ class PolicyRuntimeNode(Node):
 
         self._inference_thread.start()
 
+    def _create_observer(self):
+        observer_type = str(self.get_parameter("observer_type").value).lower()
+        joint_names = list(self.get_parameter("joint_names").value)
+        if observer_type == "vla":
+            return VLAObserver(joint_names, instruction=str(self.get_parameter("instruction").value))
+        if observer_type == "rl":
+            return RLObserver(joint_names)
+        raise ValueError(f"unknown observer_type: {observer_type}")
+
     def destroy_node(self) -> None:
         self._running = False
         if self._inference_thread.is_alive():
@@ -119,24 +132,19 @@ class PolicyRuntimeNode(Node):
         super().destroy_node()
 
     def _image_cb(self, msg: Image) -> None:
-        arr = np.frombuffer(msg.data, dtype=np.uint8)
-        if msg.height and msg.width:
-            arr = arr.reshape((msg.height, msg.width, -1))
-        with self._data_lock:
-            self._latest_image = arr.copy()
+        self._observer.update_image(msg)
 
     def _joint_state_cb(self, msg: JointState) -> None:
-        joint_names = list(self.get_parameter("joint_names").value)
-        by_name = dict(zip(msg.name, msg.position))
-        if not all(name in by_name for name in joint_names):
-            return
-        with self._data_lock:
-            self._latest_joint_positions = np.array([by_name[name] for name in joint_names], dtype=float)
+        self._observer.update_joint_state(msg)
+
+    def _instruction_cb(self, msg: String) -> None:
+        if hasattr(self._observer, "update_instruction"):
+            self._observer.update_instruction(msg)
 
     def _inference_loop(self) -> None:
         while self._running and rclpy.ok():
-            with self._data_lock:
-                image = None if self._latest_image is None else self._latest_image.copy()
+            observation = self._observer.observe()
+            image = self._policy_image_from_observation(observation)
             if image is None:
                 time.sleep(0.05)
                 continue
@@ -156,7 +164,7 @@ class PolicyRuntimeNode(Node):
                 continue
 
             try:
-                actions = self._request_policy(image, actions_per_chunk)
+                actions = self._request_policy(observation, actions_per_chunk)
                 chunk = ActionChunk(actions=actions)
                 with self._queue_lock:
                     if mode == "chunk_async" and self._queue.size > 0:
@@ -167,13 +175,24 @@ class PolicyRuntimeNode(Node):
                 self.get_logger().warn(f"policy request failed: {exc}", throttle_duration_sec=2.0)
                 time.sleep(0.1)
 
-    def _request_policy(self, image: np.ndarray, actions_per_chunk: int) -> np.ndarray:
+    @staticmethod
+    def _policy_image_from_observation(observation) -> np.ndarray | None:
+        image = getattr(observation, "image", None)
+        if image is not None:
+            return image
+        images = getattr(observation, "images", {})
+        return images.get("image")
+
+    def _request_policy(self, observation, actions_per_chunk: int) -> np.ndarray:
         import base64
         import io
 
         import requests
         from PIL import Image as PILImage
 
+        image = self._policy_image_from_observation(observation)
+        if image is None:
+            raise ValueError("policy observation does not contain an image")
         t0 = time.perf_counter()
         buf = io.BytesIO()
         PILImage.fromarray(image).save(buf, format="JPEG", quality=85)
@@ -184,7 +203,7 @@ class PolicyRuntimeNode(Node):
             "image_b64": image_b64,
             "height": int(image.shape[0]),
             "width": int(image.shape[1]),
-            "instruction": str(self.get_parameter("instruction").value),
+            "instruction": observation.instruction,
             "unnorm_key": str(self.get_parameter("unnorm_key").value),
             "actions_per_chunk": actions_per_chunk,
         }
@@ -210,8 +229,8 @@ class PolicyRuntimeNode(Node):
             action = self._queue.pop_next()
         if action is None:
             return
-        with self._data_lock:
-            current = None if self._latest_joint_positions is None else self._latest_joint_positions.copy()
+        self._observer.update_last_action(action)
+        current = self._observer.latest_joint_positions()
         if current is None:
             return
         target = self._action_to_joint_reference(current, action)
@@ -251,6 +270,7 @@ class PolicyRuntimeNode(Node):
             transform.transform.rotation.z,
             transform.transform.rotation.w,
         ], dtype=float)
+        self._observer.update_tcp_pose(current_position, current_quat)
         target_position, target_quat = apply_tcp_delta(
             current_position,
             current_quat,
@@ -358,6 +378,7 @@ class PolicyRuntimeNode(Node):
         min_width = float(self.get_parameter("gripper_min_width").value)
         max_width = float(self.get_parameter("gripper_max_width").value)
         self._gripper_width = float(np.clip(self._gripper_width + gripper_delta, min_width, max_width))
+        self._observer.update_gripper_width(self._gripper_width)
         if abs(self._gripper_width - self._last_gripper_goal) < float(self.get_parameter("gripper_deadband").value):
             return
         if not self._gripper_client.server_is_ready():

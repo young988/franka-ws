@@ -1,8 +1,10 @@
 franka_policy_runtime:
   ros__parameters:
     mode: single_step
+    observer_type: vla
     policy_url: http://127.0.0.1:8000/act
     instruction: move the object
+    instruction_topic: ~/instruction
     unnorm_key: bridge_orig
     image_topic: /camera/camera/color/image_raw
     joint_state_topic: /joint_states

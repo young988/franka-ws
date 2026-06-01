@@ -29,6 +29,8 @@ def test_runtime_config_defaults_to_single_step_mode():
     config = RuntimeConfig()
 
     assert config.mode == "single_step"
+    assert config.observer_type == "vla"
+    assert config.instruction_topic == "~/instruction"
     assert config.joint_names == [
         "fr3_joint1",
         "fr3_joint2",

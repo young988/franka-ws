@@ -19,7 +19,9 @@ FR3_JOINT_NAMES = [
 @dataclass(frozen=True)
 class RuntimeConfig:
     mode: str = "single_step"
+    observer_type: str = "vla"
     policy_url: str = "http://127.0.0.1:8000/act"
+    instruction_topic: str = "~/instruction"
     reference_topic: str = "/franka_policy_controller/reference"
     joint_names: list[str] = field(default_factory=lambda: FR3_JOINT_NAMES.copy())
     command_frame: str = "fr3_link0"
