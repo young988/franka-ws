@@ -30,8 +30,9 @@ def generate_launch_description():
             description='Calibration row to publish: best or method name such as TSAI'),
         DeclareLaunchArgument(
             'parent_frame',
-            default_value='fr3_link8',
-            description='Parent frame for published TF, e.g. fr3_link8 or franka_link8'),
+            default_value='',
+            description='Parent frame (auto: fr3_link8 for eye_in_hand, '
+                        'fr3_link0 for eye_to_hand)'),
         DeclareLaunchArgument(
             'child_frame',
             default_value='camera_link',

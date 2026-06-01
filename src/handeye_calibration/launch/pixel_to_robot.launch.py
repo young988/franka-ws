@@ -15,10 +15,10 @@ Usage:
         board_type:=chessboard
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression, TextSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -51,8 +51,9 @@ def generate_launch_description():
         'handeye_method', default_value='best',
         description='Calibration row to publish: best or method name')
     arg_parent_frame = DeclareLaunchArgument(
-        'parent_frame', default_value='fr3_link8',
-        description='Parent frame for hand-eye TF, e.g. fr3_link8 or franka_link8')
+        'parent_frame', default_value='',
+        description='Parent frame (auto: fr3_link8 for eye_in_hand, '
+                    'fr3_link0 for eye_to_hand)')
     arg_child_frame = DeclareLaunchArgument(
         'child_frame', default_value='camera_link',
         description='Target frame for hand-eye TF')
@@ -106,7 +107,7 @@ def generate_launch_description():
             ('fake_sensor_commands', LaunchConfiguration('fake_sensor_commands')),
             ('namespace', '')])
 
-    realsense_launch = IncludeLaunchDescription(
+    realsense_hand = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
                 FindPackageShare('realsense2_camera'),
@@ -115,16 +116,36 @@ def generate_launch_description():
         launch_arguments=[
             ('camera_name', 'camera'),
             ('camera_namespace', 'camera'),
-            ('serial_no', "''"),
+            ('serial_no', "'044322073013'"),
             ('enable_color', 'true'),
             ('enable_depth', 'true'),
             ('enable_infra', 'false'),
             ('enable_sync', 'true'),
             ('align_depth.enable', 'true'),
-            ('color_width', '1280'),
-            ('color_height', '720'),
-            ('depth_width', '1280'),
-            ('depth_height', '720'),
+            ('rgb_camera.color_profile', '1280,720,30'),
+            ('depth_module.depth_profile', '1280,720,30'),
+            ('pointcloud.enable', 'false'),
+            ('publish_tf', 'true'),
+            ('base_frame_id', 'link'),
+            ('tf_prefix', '')])
+
+    realsense_eye = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('realsense2_camera'),
+                'launch',
+                'rs_launch.py'])]),
+        launch_arguments=[
+            ('camera_name', 'camera'),
+            ('camera_namespace', 'camera'),
+            ('serial_no', "'420122071571'"),
+            ('enable_color', 'true'),
+            ('enable_depth', 'true'),
+            ('enable_infra', 'false'),
+            ('enable_sync', 'true'),
+            ('align_depth.enable', 'true'),
+            ('rgb_camera.color_profile', '1280,720,30'),
+            ('depth_module.depth_profile', '1280,720,30'),
             ('pointcloud.enable', 'false'),
             ('publish_tf', 'true'),
             ('base_frame_id', 'link'),
@@ -155,6 +176,7 @@ def generate_launch_description():
                 name='pixel_to_robot',
                 output='screen',
                 parameters=[{
+                    'calibration_setup': LaunchConfiguration('calibration_setup'),
                     'color_topic': TextSubstitution(
                         text='/camera/camera/color/image_raw'),
                     'depth_topic': TextSubstitution(
@@ -175,6 +197,7 @@ def generate_launch_description():
                     'grasp_speed': LaunchConfiguration('grasp_speed'),
                     'grasp_force': LaunchConfiguration('grasp_force'),
                     'min_grasp_width': LaunchConfiguration('min_grasp_width'),
+                    'target_quat': '1 0 0 0',
                     'target_point_topic': TextSubstitution(
                         text='/pixel_to_robot/target_point'),
                 }]),
@@ -201,7 +224,20 @@ def generate_launch_description():
         arg_gripper_move_action,
         arg_gripper_grasp_action,
         moveit_launch,
-        realsense_launch,
+        GroupAction(
+            actions=[realsense_hand],
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('calibration_setup'),
+                "' != 'eye_to_hand'"])),
+            scoped=True,
+            forwarding=False),
+        GroupAction(
+            actions=[realsense_eye],
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('calibration_setup'),
+                "' == 'eye_to_hand'"])),
+            scoped=True,
+            forwarding=False),
         handeye_tf_node,
         pixel_node,
     ])

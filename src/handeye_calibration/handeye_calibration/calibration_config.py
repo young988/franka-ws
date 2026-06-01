@@ -199,12 +199,14 @@ class IntrinsicsConfig:
         return str(self.source or 'camera_info').strip().lower()
 
 
-def resolve_experiment_dir(value=None, board_type=None):
+def resolve_experiment_dir(value=None, board_type=None,
+                           calibration_setup='eye_in_hand'):
     if value:
         return value
     if board_type is None:
         return DEFAULT_SAMPLE_DIR
-    return sample_dir_for_board(board_type)
+    return sample_dir_for_board(board_type,
+                                calibration_setup=calibration_setup)
 
 
 def intrinsics_candidates(config):

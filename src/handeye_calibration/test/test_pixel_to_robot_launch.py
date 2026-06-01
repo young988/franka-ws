@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, TimerAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch_ros.actions import Node
 
@@ -67,12 +67,41 @@ def find_moveit_include(launch_description):
 
 
 def find_realsense_include(launch_description):
-    for entity in launch_description.entities:
+    return find_realsense_includes(launch_description)[0]
+
+
+def find_realsense_includes(launch_description):
+    includes = []
+    entities = list(launch_description.entities)
+    while entities:
+        entity = entities.pop(0)
         if isinstance(entity, IncludeLaunchDescription):
             source_text = substitution_text(entity.launch_description_source.location)
             if "realsense2_camera" in source_text and "rs_launch.py" in source_text:
-                return entity
-    raise AssertionError("Missing RealSense include")
+                includes.append(entity)
+        if isinstance(entity, GroupAction):
+            entities.extend(
+                getattr(entity, "_GroupAction__actions"))  # pylint: disable=protected-access
+    if not includes:
+        raise AssertionError("Missing RealSense include")
+    return includes
+
+
+def find_realsense_groups(launch_description):
+    groups = []
+    for entity in launch_description.entities:
+        if not isinstance(entity, GroupAction):
+            continue
+        actions = getattr(entity, "_GroupAction__actions")  # pylint: disable=protected-access
+        for action in actions:
+            if not isinstance(action, IncludeLaunchDescription):
+                continue
+            source_text = substitution_text(action.launch_description_source.location)
+            if "realsense2_camera" in source_text and "rs_launch.py" in source_text:
+                groups.append(entity)
+    if not groups:
+        raise AssertionError("Missing grouped RealSense include")
+    return groups
 
 
 def include_launch_arguments(include_action):
@@ -160,6 +189,37 @@ def test_pixel_to_robot_launch_configures_realsense_official_arguments():
     assert args["enable_sync"] == "true"
     assert args["align_depth.enable"] == "true"
     assert args["pointcloud.enable"] == "false"
+
+
+def test_pixel_to_robot_launch_keeps_realsense_serials_as_strings():
+    launch_description = load_pixel_to_robot_launch()
+
+    serials = [
+        include_launch_arguments(include)["serial_no"]
+        for include in find_realsense_includes(launch_description)
+    ]
+
+    assert serials == ["'044322073013'", "'420122071571'"]
+
+
+def test_pixel_to_robot_launch_uses_realsense_profile_arguments():
+    launch_description = load_pixel_to_robot_launch()
+
+    args = include_launch_arguments(find_realsense_include(launch_description))
+    assert args["rgb_camera.color_profile"] == "1280,720,30"
+    assert args["depth_module.depth_profile"] == "1280,720,30"
+    assert "color_width" not in args
+    assert "color_height" not in args
+    assert "depth_width" not in args
+    assert "depth_height" not in args
+
+
+def test_pixel_to_robot_launch_scopes_realsense_includes():
+    launch_description = load_pixel_to_robot_launch()
+
+    for group in find_realsense_groups(launch_description):
+        forwarding = getattr(group, "_GroupAction__forwarding")  # pylint: disable=protected-access
+        assert forwarding is False
 
 
 def test_pixel_to_robot_launch_exposes_auto_grasp_parameters():

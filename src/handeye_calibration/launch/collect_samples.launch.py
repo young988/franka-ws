@@ -13,7 +13,8 @@ Usage:
         board_type:=chessboard
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
@@ -38,14 +39,9 @@ def generate_launch_description():
     arg_calibration_setup = DeclareLaunchArgument(
         'calibration_setup', default_value='eye_in_hand',
         description='eye_in_hand or eye_to_hand')
-    arg_tool_to_board_xyz = DeclareLaunchArgument(
-        'tool_to_board_xyz', default_value='0 0 0',
-        description='robot_effector_frame to detected board frame '
-                    'translation in meters')
-    arg_tool_to_board_rpy = DeclareLaunchArgument(
-        'tool_to_board_rpy', default_value='0 0 0',
-        description='robot_effector_frame to detected board frame '
-                    'roll pitch yaw in degrees')
+    arg_headless = DeclareLaunchArgument(
+        'headless', default_value='false',
+        description='Run without OpenCV display window')
 
     franka_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -67,7 +63,7 @@ def generate_launch_description():
                    '--controller-manager-timeout', '30'],
         output='screen')
 
-    realsense_launch = IncludeLaunchDescription(
+    realsense_hand = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
                 FindPackageShare('realsense2_camera'),
@@ -76,14 +72,31 @@ def generate_launch_description():
         launch_arguments=[
             ('camera_name', 'camera'),
             ('camera_namespace', 'camera'),
-            ('serial_no', "''"),
+            ('serial_no', "'044322073013'"),
             ('enable_color', 'true'),
             ('enable_depth', 'true'),
             ('enable_infra', 'false'),
-            ('color_width', '1280'),
-            ('color_height', '720'),
-            ('depth_width', '1280'),
-            ('depth_height', '720'),
+            ('rgb_camera.color_profile', '1280,720,30'),
+            ('depth_module.depth_profile', '1280,720,30'),
+            ('publish_tf', 'true'),
+            ('base_frame_id', 'link'),
+            ('tf_prefix', '')])
+
+    realsense_eye = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('realsense2_camera'),
+                'launch',
+                'rs_launch.py'])]),
+        launch_arguments=[
+            ('camera_name', 'camera'),
+            ('camera_namespace', 'camera'),
+            ('serial_no', "'420122071571'"),
+            ('enable_color', 'true'),
+            ('enable_depth', 'true'),
+            ('enable_infra', 'false'),
+            ('rgb_camera.color_profile', '1280,720,30'),
+            ('depth_module.depth_profile', '1280,720,30'),
             ('publish_tf', 'true'),
             ('base_frame_id', 'link'),
             ('tf_prefix', '')])
@@ -103,17 +116,10 @@ def generate_launch_description():
             'robot_base_frame': 'fr3_link0',
             'robot_effector_frame': 'fr3_link8',
             'calibration_setup': LaunchConfiguration('calibration_setup'),
-            'tool_to_board_xyz': LaunchConfiguration('tool_to_board_xyz'),
-            'tool_to_board_rpy': LaunchConfiguration('tool_to_board_rpy'),
-            'tracking_base_frame': PythonExpression([
-                '"fr3_link0" if "',
-                LaunchConfiguration('calibration_setup'),
-                '" == "eye_in_hand" else "fr3_handeye_target"']),
-            'tracking_marker_frame': PythonExpression([
-                '"fr3_link8" if "',
-                LaunchConfiguration('calibration_setup'),
-                '" == "eye_in_hand" else "fr3_link8"']),
+            'tracking_base_frame': 'fr3_link0',
+            'tracking_marker_frame': 'fr3_link8',
             'board_type': LaunchConfiguration('board_type'),
+            'headless': LaunchConfiguration('headless'),
         }])
 
     return LaunchDescription([
@@ -122,10 +128,22 @@ def generate_launch_description():
         arg_fake_sensor_commands,
         arg_board_type,
         arg_calibration_setup,
-        arg_tool_to_board_xyz,
-        arg_tool_to_board_rpy,
+        arg_headless,
         franka_launch,
         controller_spawner,
-        realsense_launch,
+        GroupAction(
+            actions=[realsense_hand],
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('calibration_setup'),
+                "' != 'eye_to_hand'"])),
+            scoped=True,
+            forwarding=False),
+        GroupAction(
+            actions=[realsense_eye],
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('calibration_setup'),
+                "' == 'eye_to_hand'"])),
+            scoped=True,
+            forwarding=False),
         collector,
     ])

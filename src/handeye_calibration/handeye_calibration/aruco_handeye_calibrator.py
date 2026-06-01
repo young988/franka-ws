@@ -149,10 +149,14 @@ def compute_calibration_outputs(calibration_setup, R_base_to_tracking, T_base_to
         R_target_to_base = R_base_to_tracking[0] @ R_camera_to_tracking @ R_target_to_camera[0]
         T_target_to_base = T_base_to_tracking[0] + (R_base_to_tracking[0] @ T_camera_to_tracking) + (R_base_to_tracking[0] @ R_camera_to_tracking @ T_target_to_camera[0])
     elif normalized_setup == 'eye_to_hand':
-        R_tracking_to_camera = R_camera_to_tracking.T
-        T_tracking_to_camera = -R_tracking_to_camera @ T_camera_to_tracking
-        R_target_to_base = R_base_to_tracking[0] @ R_tracking_to_camera @ R_target_to_camera[0]
-        T_target_to_base = T_base_to_tracking[0] + (R_base_to_tracking[0] @ T_tracking_to_camera) + (R_base_to_tracking[0] @ R_tracking_to_camera @ T_target_to_camera[0])
+        base_to_tracking = make_homogeneous(
+            R_base_to_tracking[0], T_base_to_tracking[0])
+        target_to_base = make_homogeneous(
+            R_camera_to_tracking, T_camera_to_tracking) @ make_homogeneous(
+                R_target_to_camera[0], T_target_to_camera[0])
+        target_to_tracking = np.linalg.inv(base_to_tracking) @ target_to_base
+        R_target_to_base = target_to_tracking[:3, :3]
+        T_target_to_base = target_to_tracking[:3, 3:4]
     else:
         raise ValueError("Unsupported calibration setup '{}'. Use eye_in_hand or eye_to_hand.".format(calibration_setup))
     return {
@@ -252,26 +256,36 @@ def target_translation_deviations(calibration_setup, R_base_to_tracking,
     return np.linalg.norm(trans - center, axis=1)
 
 
-def average_eye_to_hand_camera_to_base(R_base_to_target, T_base_to_target,
-                                       R_target_to_camera, T_target_to_camera):
-    camera_to_base_transforms = []
-    for R_bt, T_bt, R_tc, T_tc in zip(R_base_to_target, T_base_to_target,
+def solve_eye_to_hand_camera_to_base(R_base_to_tool, T_base_to_tool,
                                      R_target_to_camera, T_target_to_camera):
-        base_to_target = make_homogeneous(R_bt, T_bt)
-        target_to_camera = make_homogeneous(R_tc, T_tc)
-        camera_to_base_transforms.append(base_to_target @ np.linalg.inv(target_to_camera))
+    robot_world_methods = [
+        ('SHAH', cv2.CALIB_ROBOT_WORLD_HAND_EYE_SHAH),
+        ('LI', cv2.CALIB_ROBOT_WORLD_HAND_EYE_LI),
+    ]
+    results = []
+    for name, method in robot_world_methods:
+        try:
+            _R_base_to_target, _T_base_to_target, R_base_to_camera, T_base_to_camera = (
+                cv2.calibrateRobotWorldHandEye(
+                    R_target_to_camera, T_target_to_camera,
+                    R_base_to_tool, T_base_to_tool,
+                    method=method))
+        except cv2.error:
+            continue
 
-    translations = np.asarray([tf[:3, 3] for tf in camera_to_base_transforms])
-    quaternions = []
-    from scipy.spatial.transform import Rotation
-    for tf in camera_to_base_transforms:
-        quat = Rotation.from_matrix(tf[:3, :3]).as_quat()
-        if quaternions and np.dot(quaternions[0], quat) < 0:
-            quat = -quat
-        quaternions.append(quat)
-    quat_mean = np.mean(np.asarray(quaternions), axis=0)
-    quat_mean = quat_mean / np.linalg.norm(quat_mean)
-    return Rotation.from_quat(quat_mean).as_matrix(), translations.mean(axis=0).reshape(3, 1)
+        camera_to_base = np.linalg.inv(
+            make_homogeneous(R_base_to_camera, T_base_to_camera))
+        R_cb = camera_to_base[:3, :3]
+        T_cb = camera_to_base[:3, 3:4]
+        rmse, max_dev, _mean_t, _devs = verification_stats(
+            'eye_to_hand', R_base_to_tool, T_base_to_tool,
+            R_target_to_camera, T_target_to_camera, R_cb, T_cb)
+        results.append({'method': 'ROBOT_WORLD_HAND_EYE_' + name,
+                        'rmse': rmse, 'max_dev': max_dev,
+                        'R': R_cb, 'T': T_cb})
+    if not results:
+        raise RuntimeError('cv2.calibrateRobotWorldHandEye did not return any valid result')
+    return sorted(results, key=lambda result: result['rmse'])
 
 
 def solve_handeye_calibration(calibration_setup, R_base_to_tracking,
@@ -283,14 +297,9 @@ def solve_handeye_calibration(calibration_setup, R_base_to_tracking,
             len(R_base_to_tracking)))
 
     if normalized_setup == 'eye_to_hand':
-        R_cb, T_cb = average_eye_to_hand_camera_to_base(
+        return solve_eye_to_hand_camera_to_base(
             R_base_to_tracking, T_base_to_tracking,
             R_target_to_camera, T_target_to_camera)
-        rmse, max_dev, _mean_t, _devs = verification_stats(
-            normalized_setup, R_base_to_tracking, T_base_to_tracking,
-            R_target_to_camera, T_target_to_camera, R_cb, T_cb)
-        return [{'method': 'DIRECT_AVERAGE', 'rmse': rmse, 'max_dev': max_dev,
-                 'R': R_cb, 'T': T_cb}]
 
     methods = [
         ('TSAI', cv2.CALIB_HAND_EYE_TSAI),
@@ -628,7 +637,10 @@ class HandeyeCalibrationNode(Node):
         print('\nCalibration matrix ({}):\n{}\n'.format(label, RT_handeye))
         rmse, max_dev, mean_t, devs = verification_stats(
             calibration_setup, R_gb, T_gb, R_tc, T_tc, R_cb, T_cb)
-        print('Verification (target->base should be constant):')
+        verification_label = ('target->base' if calibration_setup == 'eye_in_hand'
+                              else 'target->tool')
+        print('Verification ({} should be constant):'.format(
+            verification_label))
         print('  mean translation: [{:.6f}, {:.6f}, {:.6f}] m'.format(*mean_t))
         print('  translation rmse: {:.6f} m, max: {:.6f} m'.format(rmse, max_dev))
         for idx, dev in enumerate(devs):

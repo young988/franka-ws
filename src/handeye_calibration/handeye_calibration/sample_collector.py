@@ -57,39 +57,10 @@ def make_latest_image_qos():
                       reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
-def parse_xyz_parameter(value):
-    parts = [float(item)
-             for item in str(value).replace(',', ' ').split()]
-    if len(parts) != 3:
-        raise ValueError('tool_to_board_xyz must contain exactly 3 values')
-    return np.asarray(parts, dtype=np.float64).reshape(3, 1)
-
-
-def parse_rpy_parameter(value):
-    parts = [float(item)
-             for item in str(value).replace(',', ' ').split()]
-    if len(parts) != 3:
-        raise ValueError('tool_to_board_rpy must contain exactly 3 values')
-    from scipy.spatial.transform import Rotation
-    return Rotation.from_euler('xyz', parts, degrees=True).as_matrix()
-
-
-def compose_tracking_pose(base_to_tool_rotation, base_to_tool_translation,
-                          tool_to_board_rotation, tool_to_board_translation):
-    return (base_to_tool_rotation @ tool_to_board_rotation,
-            base_to_tool_translation + (base_to_tool_rotation
-                                        @ tool_to_board_translation))
-
-
-def resolve_saved_pose(calibration_setup, base_to_tool_rotation,
-                       base_to_tool_translation, tool_to_board_rotation,
-                       tool_to_board_translation):
-    if calibration_setup == 'eye_to_hand':
-        return compose_tracking_pose(base_to_tool_rotation,
-                                     base_to_tool_translation,
-                                     tool_to_board_rotation,
-                                     tool_to_board_translation)
-    return (base_to_tool_rotation, base_to_tool_translation)
+def parse_bool_parameter(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 class SampleCollector(Node):
@@ -106,8 +77,6 @@ class SampleCollector(Node):
         self.declare_parameter('calibration_setup', 'eye_in_hand')
         self.declare_parameter('tracking_base_frame', '')
         self.declare_parameter('tracking_marker_frame', '')
-        self.declare_parameter('tool_to_board_xyz', '0 0 0')
-        self.declare_parameter('tool_to_board_rpy', '0 0 0')
         self.declare_parameter('intrinsics_output_name',
                                'camera_intrinsics_camera_info.txt')
         self.declare_parameter('marker_id', 0)
@@ -121,6 +90,7 @@ class SampleCollector(Node):
         self.declare_parameter('aruco_result_topic', '')
         self.declare_parameter('display_interval', 0.05)
         self.declare_parameter('preview_detection_interval', 0.25)
+        self.declare_parameter('headless', False)
 
         frames = resolve_calibration_frames(
             calibration_setup=self.get_parameter('calibration_setup').value,
@@ -135,11 +105,6 @@ class SampleCollector(Node):
         self.effector_frame = frames.robot_effector_frame
         self.tracking_base_frame = frames.tracking_base_frame
         self.tracking_marker_frame = frames.tracking_marker_frame
-
-        self.tool_to_board_translation = parse_xyz_parameter(
-            self.get_parameter('tool_to_board_xyz').value)
-        self.tool_to_board_rotation = parse_rpy_parameter(
-            self.get_parameter('tool_to_board_rpy').value)
 
         self.board_config = BoardConfig.from_values(
             board_type=self.get_parameter('board_type').value,
@@ -159,6 +124,8 @@ class SampleCollector(Node):
         self.preview_detection_interval = resolve_preview_detection_interval(
             self.get_parameter('preview_detection_interval').value,
             self.display_interval)
+        self.headless = parse_bool_parameter(
+            self.get_parameter('headless').value)
 
         sample_dir = resolve_sample_dir(
             self.get_parameter('sample_dir').value,
@@ -200,17 +167,20 @@ class SampleCollector(Node):
 
         self.counter = self._load_existing_count()
 
-        cv2.namedWindow('sample_collector', cv2.WINDOW_NORMAL)
-        cv2.resizeWindow('sample_collector', 960, 540)
+        if not self.headless:
+            try:
+                cv2.namedWindow('sample_collector', cv2.WINDOW_NORMAL)
+                cv2.resizeWindow('sample_collector', 960, 540)
+            except cv2.error as exc:
+                self.headless = True
+                self.get_logger().warn(
+                    'OpenCV window unavailable; continuing in headless mode: {}'
+                    .format(exc))
         self.get_logger().info(
             "Sample collector ready. Press 's' to save, 'q' to quit.")
         self.get_logger().info(
             'Saving to: {} / {}'.format(self.img_dir, self.pose_path))
-        saved_pose_label = ('base -> board'
-                            if self.calibration_setup == 'eye_to_hand'
-                            else 'base -> tool')
-        self.get_logger().info(
-            'Saved pose semantics: {}'.format(saved_pose_label))
+        self.get_logger().info('Saved pose semantics: base -> tool')
         self.get_logger().info(
             'Calibration setup: {} (tracking {} -> {})'.format(
                 self.calibration_setup,
@@ -344,20 +314,12 @@ class SampleCollector(Node):
         base_to_tool_rotation = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
         base_to_tool_translation = np.array([[tx], [ty], [tz]], dtype=np.float64)
 
-        resolved_rotation, resolved_translation = resolve_saved_pose(
-            calibration_setup=self.calibration_setup,
-            base_to_tool_rotation=base_to_tool_rotation,
-            base_to_tool_translation=base_to_tool_translation,
-            tool_to_board_rotation=self.tool_to_board_rotation,
-            tool_to_board_translation=self.tool_to_board_translation,
-        )
-
-        rpy = Rotation.from_matrix(resolved_rotation).as_euler(
+        rpy = Rotation.from_matrix(base_to_tool_rotation).as_euler(
             'xyz', degrees=True)
 
-        return (float(resolved_translation[0, 0]),
-                float(resolved_translation[1, 0]),
-                float(resolved_translation[2, 0]),
+        return (float(base_to_tool_translation[0, 0]),
+                float(base_to_tool_translation[1, 0]),
+                float(base_to_tool_translation[2, 0]),
                 float(rpy[0]),
                 float(rpy[1]),
                 float(rpy[2]))
@@ -386,6 +348,9 @@ class SampleCollector(Node):
 
     def _loop(self):
         if self.latest_img is None:
+            return
+
+        if self.headless:
             return
 
         detected = False

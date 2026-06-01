@@ -1,13 +1,17 @@
 """Publish the hand-eye calibration result as a static TF.
 
-Published:
-  parent_frame (fr3_link8) -> child_frame (camera_link)
-
-Composed directly from:
+eye_in_hand:
   1. Camera driver TF:   camera_link -> optical_frame   (looked up from TF)
   2. Calibration CSV:    optical_frame -> link8         (from handeye_results.csv)
+  Published:  fr3_link8 -> camera_link
 
-p_link8 = optical_to_link8 @ cam_to_optical @ p_camlink
+eye_to_hand:
+  1. Camera driver TF:   camera_link -> optical_frame   (looked up from TF)
+  2. Calibration CSV:    optical_frame -> base          (from handeye_results.csv)
+  Published:  fr3_link0 -> camera_link
+
+Composition (same formula for both modes):
+  parent -> child = (CSV: optical -> parent) @ (TF: child -> optical)
 """
 
 import csv
@@ -19,7 +23,8 @@ from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from tf2_ros import Buffer, StaticTransformBroadcaster, TransformListener
 
-from handeye_calibration.calibration_config import sample_paths
+from handeye_calibration.calibration_config import (
+    normalize_calibration_setup, sample_paths)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +116,8 @@ def _tf_from_matrix(matrix: np.ndarray, stamp, parent_frame: str,
 def _read_calibration(result_file: str, method: str = 'best'):
     """Read one row from handeye_results.csv as a 4x4 homogeneous matrix.
 
-    The CSV stores: optical_frame -> link8  (camera optical → robot effector).
+    eye_in_hand:  optical_frame → link8   (camera optical in robot effector frame)
+    eye_to_hand:  optical_frame → base    (camera optical in robot base frame)
 
     Returns (method_name, 4x4_matrix).
     """
@@ -144,14 +150,13 @@ def _read_calibration(result_file: str, method: str = 'best'):
 # ---------------------------------------------------------------------------
 
 class HandeyeTfPublisher(Node):
-    """Publish link8 -> camera_link by composing camera TF + hand-eye calibration.
+    """Publish the hand-eye calibration result as a static TF.
 
-    Sources:
-      1. Camera driver TF:   camera_link -> optical_frame
-      2. Calibration CSV:    optical_frame -> link8
+    Composition (same for both modes):
+      parent -> child = calibration_matrix @ (child -> optical)
 
-    Published:
-      parent_frame -> child_frame  (fr3_link8 -> camera_link)
+    eye_in_hand:  parent=fr3_link8, child=camera_link
+    eye_to_hand:  parent=fr3_link0, child=camera_link
     """
 
     def __init__(self):
@@ -163,9 +168,23 @@ class HandeyeTfPublisher(Node):
         self.declare_parameter('board_type', 'chessboard')
         self.declare_parameter('calibration_setup', 'eye_in_hand')
         self.declare_parameter('method', 'best')
-        self.declare_parameter('parent_frame', 'fr3_link8')
+        self.declare_parameter('parent_frame', '')
         self.declare_parameter('child_frame', 'camera_link')
         self.declare_parameter('optical_frame', 'camera_color_optical_frame')
+
+        calibration_setup = normalize_calibration_setup(
+            self.get_parameter('calibration_setup').value)
+
+        # --- auto-default parent_frame ---
+        parent_frame = self.get_parameter('parent_frame').value
+        if not parent_frame:
+            if calibration_setup == 'eye_to_hand':
+                parent_frame = 'fr3_link0'
+            else:
+                parent_frame = 'fr3_link8'
+        self._parent_frame = parent_frame
+        self._child_frame = self.get_parameter('child_frame').value
+        self._optical_frame = self.get_parameter('optical_frame').value
 
         # --- resolve result file ---
         result_file = self.get_parameter('result_file').value
@@ -173,24 +192,20 @@ class HandeyeTfPublisher(Node):
             paths = sample_paths(
                 sample_dir=self.get_parameter('sample_dir').value,
                 board_type=self.get_parameter('board_type').value,
-                calibration_setup=self.get_parameter('calibration_setup').value)
+                calibration_setup=calibration_setup)
             result_file = os.path.join(paths.output_dir, 'handeye_results.csv')
 
         if not os.path.exists(result_file):
             raise FileNotFoundError(f'Hand-eye result file not found: {result_file}')
 
         method = self.get_parameter('method').value
-        self._method_name, optical_to_link8 = _read_calibration(result_file, method)
-
-        # The CSV holds  optical_frame -> link8
-        self._optical_to_link8 = optical_to_link8
-
-        self._parent_frame = self.get_parameter('parent_frame').value
-        self._child_frame = self.get_parameter('child_frame').value
-        self._optical_frame = self.get_parameter('optical_frame').value
+        self._method_name, self._calibration_matrix = _read_calibration(result_file, method)
 
         self.get_logger().info(
             f'Loaded hand-eye result: {result_file}  method={self._method_name}')
+        self.get_logger().info(
+            f'Calibration setup: {calibration_setup}, '
+            f'publishing {self._parent_frame} -> {self._child_frame}')
 
         # --- TF infrastructure ---
         self._tf_buffer = Buffer()
@@ -203,14 +218,14 @@ class HandeyeTfPublisher(Node):
 
     # ------------------------------------------------------------------
     def _try_publish(self):
-        """Look up camera_link -> optical_frame from TF, then compose and publish."""
+        """Look up child -> optical from camera driver TF, compose, publish."""
         if self._published:
             return
 
         try:
             cam_to_optical_msg = self._tf_buffer.lookup_transform(
                 self._optical_frame,          # target
-                self._child_frame,            # source  →  camera_link -> optical_frame
+                self._child_frame,            # source  →  child -> optical
                 rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=2))
         except Exception as exc:
@@ -219,17 +234,18 @@ class HandeyeTfPublisher(Node):
                 f'from camera driver … ({exc})', throttle_duration_sec=5)
             return
 
-        # camera_link -> optical_frame
+        # child -> optical
         cam_to_optical = _matrix_from_tf(cam_to_optical_msg)
 
-        # link8 -> camera_link  =  optical->link8 @ camlink->optical
-        # p_link8 = optical_to_link8 @ cam_to_optical @ p_camlink
-        link8_to_camera = self._optical_to_link8 @ cam_to_optical
+        # parent -> child = (optical -> parent) @ (child -> optical)
+        #   eye_in_hand:  link8 -> camera_link
+        #   eye_to_hand:  base  -> camera_link
+        parent_to_child = self._calibration_matrix @ cam_to_optical
 
         stamp = self.get_clock().now().to_msg()
 
         self._broadcaster.sendTransform(_tf_from_matrix(
-            link8_to_camera, stamp,
+            parent_to_child, stamp,
             self._parent_frame, self._child_frame))
 
         self._retry_timer.cancel()

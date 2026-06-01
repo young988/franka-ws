@@ -32,7 +32,8 @@ from cv_bridge import CvBridge
 from tf2_ros import (
     Buffer, TransformException, TransformListener)
 from handeye_calibration.calibration_config import (
-    IntrinsicsConfig, resolve_experiment_dir, resolve_intrinsics)
+    IntrinsicsConfig, normalize_calibration_setup,
+    resolve_experiment_dir, resolve_intrinsics)
 from handeye_calibration.sample_collector import make_latest_image_qos
 
 
@@ -68,9 +69,14 @@ def camera_point_from_depth_image(depth_image, u, v, fx, fy, cx, cy, depth_windo
     return np.array([[x_cam], [y_cam], [z_cam]], dtype=np.float64)
 
 
-def default_target_quaternion():
-    """Fixed TCP target orientation."""
-    return Quaternion(x=1.0, y=0.0, z=0.0, w=0.0)
+def parse_quaternion_string(text):
+    """Parse 'x y z w' string into a Quaternion. Defaults to TCP pointing down."""
+    parts = str(text or '1 0 0 0').strip().split()
+    if len(parts) != 4:
+        raise ValueError(
+            'target_quat must be 4 floats: "x y z w", got {!r}'.format(text))
+    return Quaternion(x=float(parts[0]), y=float(parts[1]),
+                      z=float(parts[2]), w=float(parts[3]))
 
 
 def build_move_goal(width, speed):
@@ -97,6 +103,7 @@ class PixelToRobot(Node):
         super().__init__('pixel_to_robot')
         cb_group = ReentrantCallbackGroup()
 
+        self.declare_parameter('calibration_setup', 'eye_in_hand')
         self.declare_parameter('color_topic', '/camera/camera/color/image_raw')
         self.declare_parameter('depth_topic',
                                '/camera/camera/aligned_depth_to_color/image_raw')
@@ -127,10 +134,14 @@ class PixelToRobot(Node):
         self.declare_parameter('min_grasp_width', 0.005)
         self.declare_parameter('target_point_topic',
                                '/pixel_to_robot/target_point')
+        self.declare_parameter('target_quat', '1 0 0 0')
 
         board_type = self.get_parameter('board_type').value
+        self.calibration_setup = normalize_calibration_setup(
+            self.get_parameter('calibration_setup').value)
         experiment_dir = resolve_experiment_dir(
-            self.get_parameter('experiment_dir').value, board_type)
+            self.get_parameter('experiment_dir').value, board_type,
+            calibration_setup=self.calibration_setup)
 
         intrinsics_source = self.get_parameter('intrinsics_source').value
         self.K = None
@@ -213,7 +224,8 @@ class PixelToRobot(Node):
                 'Gripper grasp action server not available yet: {}'.format(
                     self.gripper_grasp_action))
 
-        self.target_quat = default_target_quaternion()
+        self.target_quat = parse_quaternion_string(
+            self.get_parameter('target_quat').value)
         self._planning = False
         self._executor = None
 

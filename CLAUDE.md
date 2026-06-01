@@ -14,18 +14,22 @@ Always source the workspace overlay before running nodes: `source install/setup.
 colcon build                                          # full workspace
 colcon build --packages-select franka_policy_runtime   # Python-only package
 colcon build --packages-select policy_server           # Python-only package
+colcon build --packages-select handeye_calibration     # Python-only package
 colcon build --packages-select franka_policy_controller # C++ package
+colcon build --packages-select motion_plan             # C++ package
 colcon build --packages-up-to franka_policy_runtime    # package + deps
 source install/setup.bash                             # overlay after build
 colcon test --packages-select franka_policy_runtime
+colcon test --packages-select handeye_calibration
 colcon test-result --verbose                          # inspect failures
 ```
 
-`franka_policy_runtime` and `policy_server` are pure Python packages — no C++ compilation needed. `franka_policy_controller` and `motion_plan` are C++ (`ament_cmake`).
+`franka_policy_runtime`, `policy_server`, and `handeye_calibration` are pure Python packages — no C++ compilation needed. `franka_policy_controller` and `motion_plan` are C++ (`ament_cmake`). `franka_policy_controller` and `motion_plan` have no automated tests.
 
 For fast Python-only test iteration without a full build:
 ```bash
 PYTHONPATH=src/franka_policy_runtime pytest src/franka_policy_runtime/test/ -q
+PYTHONPATH=src/handeye_calibration pytest src/handeye_calibration/test/ -q
 ```
 
 ## Architecture
@@ -83,7 +87,7 @@ A ros2_control `ControllerInterface` plugin that tracks joint position reference
 - **`FrankaPolicyController`** — Lifecycle-managed controller. On configure: reads joint names, per-joint P/D gains, effort limits, and `reference_timeout_sec` from ROS params; creates a subscription to `~/reference` (`JointTrajectory`). On update: reads current joint state from hardware interfaces, checks if the buffered reference is fresh (within timeout), computes PD effort with per-joint clamping, writes to effort command interfaces. Uses `realtime_tools::RealtimeBuffer` for lock-free reference passing between the non-RT subscription callback and the RT update loop.
 - **Plugin registration:** `franka_policy_controller_plugin.xml` → `PLUGINLIB_EXPORT_CLASS`
 - **Config:** `config/franka_bringup_policy_controllers.yaml` — controller manager config (1000 Hz update rate, RT priority 98) and per-joint gains/limits.
-- Default PD gains (code defaults, overridable by yaml): `[600, 600, 600, 600, 250, 150, 50]` for P, `[30, 30, 30, 30, 10, 10, 5]` for D.
+- Default gains (code defaults, overridable by yaml): `[600, 600, 600, 600, 250, 150, 50]` for P, `[30, 30, 30, 30, 10, 10, 5]` for D, `[30, 30, 30, 30, 15, 12, 10]` for effort limits. `reference_timeout_sec` defaults to 0.5 in code. Note: the YAML config (`franka_bringup_policy_controllers.yaml`) uses much lower gains for safety — `[60, 60, 60, 60, 25, 15, 5]` P / `[6, 6, 6, 6, 2, 2, 1]` D with 2.0 s timeout.
 
 ### `policy_server` — HTTP Inference Server (Python, `ament_python`)
 
@@ -110,9 +114,36 @@ A MoveIt `planning_interface::PlannerManager` plugin loaded by `move_group` at r
 
 **Key files:** `rrt_planner_manager.hpp/cpp` (plugin entry), `rrt_planning_context.hpp/cpp` (per-request instance), `rrt_core.hpp/cpp` (generic solver), `motion_plan_plugin.xml` (pluginlib descriptor).
 
+**Launch:** `fr3_sensor_moveit.launch.py` — full MoveIt + RealSense octomap + hand-eye TF stack. Select planner via `planner:=ompl` (default) or `planner:=rrt`. When using `rrt`, the launch loads `motion_plan/RRTPlannerManager` as the planning plugin. Includes the `handeye_calibration` `publish_handeye_tf.launch.py` (toggleable via `publish_handeye_tf:=true`).
+
+**Config:** `config/rrt_planning.yaml` — per-algorithm parameters (range, goal bias, max iterations, adaptive step sizing, path simplification).
+
 ### `handeye_calibration` — Hand-Eye Calibration & Pixel-to-Robot (Python, `ament_python`)
 
-Six console scripts for camera calibration, ArUco-based hand-eye solving (`AX=XB` via OpenCV with 5 methods + RANSAC), interactive sample collection, pixel-to-robot click-to-grasp (depth image → TF → MoveIt planning → trajectory execution → auto-grasp), hand-eye TF publishing, and point cloud filtering. Sample directory convention: `samples/{eye_in_hand|eye_to_hand}/{board_type}/`.
+Six console scripts for camera calibration, ArUco-based hand-eye solving (`AX=XB` via OpenCV with 5 methods + RANSAC), interactive sample collection, pixel-to-robot click-to-grasp (depth image → TF → MoveIt planning → trajectory execution → auto-grasp), hand-eye TF publishing, and point cloud filtering.
+
+**Console scripts** (installed to both `bin/` and `lib/handeye_calibration/`):
+- `aruco_camera_calibrator` — camera intrinsic calibration from chessboard images.
+- `aruco_handeye_calibrator` — solve `AX=XB` from collected robot-camera pose pairs.
+- `sample_collector` — interactive tool to capture synchronized robot poses + camera images.
+- `pixel_to_robot` — click on an image pixel → compute 3D grasp pose → plan and execute with MoveIt.
+- `target_cloud_filter` — filter a point cloud to isolate a target object.
+- `handeye_tf_publisher` — publish the solved hand-eye transform as a TF frame.
+
+**Wrapper script pattern:** Scripts are installed to `lib/handeye_calibration/` via `data_files` (not just `entry_points`) because ROS 2 launch `Node` looks for executables in `lib/<pkg>/`. Each script in `scripts/` is a thin wrapper that imports and calls the corresponding module's `main()`.
+
+**Launch files:**
+- `collect_samples.launch.py` — camera + robot + sample collector node.
+- `pixel_to_robot.launch.py` — camera + handeye TF + MoveIt + pixel_to_robot node.
+- `publish_handeye_tf.launch.py` — reads calibration CSV, publishes camera_link → robot frame TF.
+- `calibrate_offline.launch.py` — offline calibration from previously collected samples.
+
+Sample directory convention: `samples/{eye_in_hand|eye_to_hand}/{board_type}/`.
+
+**Key modules:**
+- `board_detection.py` — ArUco/chessboard detection utilities.
+- `calibration_config.py` — `CalibrationConfig` dataclass and path resolution.
+- `grasp_logic.py` — grasp computation from pixel + depth (shared between pixel_to_robot and external consumers).
 
 ### External (non-ROS) directories
 

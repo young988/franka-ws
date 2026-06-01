@@ -10,6 +10,7 @@ sys.path.insert(0, str(TEST_ROOT))
 
 from handeye_calibration.aruco_handeye_calibrator import (
     compute_calibration_outputs,
+    solve_handeye_calibration,
     write_handeye_results,
 )
 from handeye_calibration.pixel_to_robot import (
@@ -30,6 +31,57 @@ def matrix(rotation, translation):
 
 def split(transform):
     return transform[:3, :3], transform[:3, 3:4]
+
+
+def test_eye_to_hand_solver_uses_base_to_tool_without_board_offset():
+    camera_to_base = matrix(
+        Rotation.from_euler("zyx", [15, -8, 4], degrees=True).as_matrix(),
+        [0.7, -0.35, 0.55],
+    )
+    tool_to_board = matrix(
+        Rotation.from_euler("xyz", [12, -20, 35], degrees=True).as_matrix(),
+        [0.05, 0.02, 0.18],
+    )
+
+    base_to_tools = [
+        matrix(
+            Rotation.from_euler("xyz", [10, -5, 20], degrees=True).as_matrix(),
+            [0.35, -0.10, 0.30],
+        ),
+        matrix(
+            Rotation.from_euler("xyz", [-15, 12, 45], degrees=True).as_matrix(),
+            [0.42, 0.05, 0.38],
+        ),
+        matrix(
+            Rotation.from_euler("xyz", [25, 20, -30], degrees=True).as_matrix(),
+            [0.28, 0.12, 0.45],
+        ),
+        matrix(
+            Rotation.from_euler("xyz", [-8, -18, 70], degrees=True).as_matrix(),
+            [0.50, -0.18, 0.34],
+        ),
+        matrix(
+            Rotation.from_euler("xyz", [18, 28, 5], degrees=True).as_matrix(),
+            [0.31, 0.20, 0.41],
+        ),
+    ]
+
+    target_to_cameras = [
+        np.linalg.inv(camera_to_base) @ base_to_tool @ tool_to_board
+        for base_to_tool in base_to_tools
+    ]
+
+    results = solve_handeye_calibration(
+        "eye_to_hand",
+        [tf[:3, :3] for tf in base_to_tools],
+        [tf[:3, 3:4] for tf in base_to_tools],
+        [tf[:3, :3] for tf in target_to_cameras],
+        [tf[:3, 3:4] for tf in target_to_cameras],
+    )
+
+    best = results[0]
+    np.testing.assert_allclose(best["R"], camera_to_base[:3, :3], atol=1e-6)
+    np.testing.assert_allclose(best["T"], camera_to_base[:3, 3:4], atol=1e-6)
 
 
 def test_eye_in_hand_output_keeps_target_fixed_in_base():

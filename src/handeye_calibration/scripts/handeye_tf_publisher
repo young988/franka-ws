@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
-from handeye_calibration.handeye_tf_publisher import main
+# Wrapper for ROS 2 launch Node compatibility
+import os
+import sys
 
+# This script is at: <prefix>/lib/<pkg>/<script>
+# Executable is at: <prefix>/bin/<script>
+script_path = os.path.abspath(__file__)
+# Go up 3 levels: lib/<pkg>/<script> -> lib/<pkg> -> lib -> prefix
+prefix_dir = os.path.dirname(os.path.dirname(os.path.dirname(script_path)))
+bin_dir = os.path.join(prefix_dir, 'bin')
+script_name = os.path.basename(__file__)
+exe = os.path.join(bin_dir, script_name)
 
-if __name__ == '__main__':
-    main()
+if not os.path.exists(exe):
+    # Fallback: try resolving the real path (for non-symlink installs)
+    real_script = os.path.realpath(__file__)
+    real_prefix = os.path.dirname(os.path.dirname(os.path.dirname(real_script)))
+    exe = os.path.join(real_prefix, 'bin', script_name)
+
+os.execv(exe, [exe] + sys.argv[1:])

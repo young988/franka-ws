@@ -16,3 +16,4 @@ src/IsaacLab/
 src/franka_ros/
 src/realsense-ros/
 src/.vscode/
+.codegraph/
