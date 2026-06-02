@@ -1,0 +1,20 @@
+/**:
+  controller_manager:
+    ros__parameters:
+      update_rate: 1000
+      thread_priority: 98
+
+      joint_state_broadcaster:
+        type: joint_state_broadcaster/JointStateBroadcaster
+
+      franka_cartesian_pose_controller:
+        type: franka_policy_controller/FrankaCartesianPoseController
+
+      franka_robot_state_broadcaster:
+        type: franka_robot_state_broadcaster/FrankaRobotStateBroadcaster
+
+/**:
+  franka_cartesian_pose_controller:
+    ros__parameters:
+      arm_id: fr3
+      reference_timeout_sec: 2.0
