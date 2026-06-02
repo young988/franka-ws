@@ -12,12 +12,10 @@
   <exec_depend>franka_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>handeye_calibration</exec_depend>
-  <exec_depend>moveit_msgs</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>trajectory_msgs</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

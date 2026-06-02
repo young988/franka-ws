@@ -31,7 +31,7 @@ class BCCubeStackPolicyRuntime(PolicyRuntimeBase):
             pose_provider = ColorCubeObjectPoseProvider(
                 target_color=str(self.get_parameter("object_target_color").value),
                 camera_frame=str(self.get_parameter("object_camera_frame").value),
-                tcp_frame=str(self.get_parameter("tcp_frame").value),
+                tcp_frame=str(self.get_parameter("policy_tcp_frame").value),
                 min_pixels=int(self.get_parameter("object_min_pixels").value),
             )
             object_provider = ColorCubeStackObjectProvider(

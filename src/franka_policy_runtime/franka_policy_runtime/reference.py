@@ -5,9 +5,7 @@ Policy actions follow IsaacLab ``DifferentialInverseKinematicsAction``:
 The first six values are relative TCP pose deltas.  The angular part is
 axis-angle, and both translation and rotation are scaled before application.
 The seventh value is binary gripper command: negative closes, non-negative opens.
-The arm controller consumes joint references, so runtime code must convert the
-first six dimensions through TF + IK before publishing to the controller.  The
-seventh dimension is handled separately through the Franka gripper action API.
+Quaternion order throughout is ROS xyzw.
 """
 
 from __future__ import annotations
@@ -114,49 +112,6 @@ def apply_tcp_delta_in_base_frame(
     return target_position, target_quat
 
 
-def apply_tcp_delta(
-    current_position: np.ndarray,
-    current_quat_xyzw: np.ndarray,
-    action: np.ndarray,
-    *,
-    action_scale: float,
-    rotation_format: str = "axis_angle",
-) -> tuple[np.ndarray, np.ndarray]:
-    """Apply IsaacLab-style relative TCP delta in the command/base frame.
-
-    Compatibility wrapper that forwards to ``apply_tcp_delta_in_base_frame``.
-
-    .. deprecated::
-        Use ``apply_tcp_delta_in_base_frame`` directly in new code.
-    """
-    return apply_tcp_delta_in_base_frame(
-        current_position,
-        current_quat_xyzw,
-        action,
-        action_scale=action_scale,
-        rotation_format=rotation_format,
-    )
-
-
-def clamp_joint_step(
-    current_positions: np.ndarray,
-    target_positions: np.ndarray,
-    *,
-    max_joint_delta: float,
-) -> np.ndarray:
-    """Clamp the joint-space step toward *target_positions* to a per-joint limit."""
-    current = np.asarray(current_positions, dtype=np.float64)
-    target = np.asarray(target_positions, dtype=np.float64)
-    if current.shape != target.shape:
-        raise ValueError(
-            f"current and target joint arrays must have the same shape, "
-            f"got {current.shape} and {target.shape}"
-        )
-    limit = abs(float(max_joint_delta))
-    delta = np.clip(target - current, -limit, limit)
-    return current + delta
-
-
 def step_toward_pose(
     current_position: np.ndarray,
     current_quat_xyzw: np.ndarray,
@@ -166,6 +121,11 @@ def step_toward_pose(
     max_translation_step: float,
     max_rotation_step: float,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Interpolate one step toward a target pose, clamped per-tick.
+
+    Translation is linearly interpolated with a max step distance.
+    Rotation is slerp-interpolated with a max angular step.
+    """
     position = np.asarray(current_position, dtype=np.float64)
     quat_xyzw = np.asarray(current_quat_xyzw, dtype=np.float64)
     target_position_arr = np.asarray(target_position, dtype=np.float64)
@@ -210,20 +170,3 @@ def step_toward_pose(
 def gripper_width_from_binary_action(action_value: float, *, min_width: float, max_width: float) -> float:
     return float(min_width if float(action_value) < 0.0 else max_width)
 
-
-def make_joint_trajectory(joint_names: list[str], positions: np.ndarray, duration_sec: float):
-    from builtin_interfaces.msg import Duration
-    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
-    point = JointTrajectoryPoint()
-    point.positions = np.asarray(positions, dtype=float).tolist()
-    sec = int(duration_sec)
-    point.time_from_start = Duration(
-        sec=sec,
-        nanosec=int((duration_sec - sec) * 1_000_000_000),
-    )
-
-    msg = JointTrajectory()
-    msg.joint_names = list(joint_names)
-    msg.points.append(point)
-    return msg
