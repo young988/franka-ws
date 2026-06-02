@@ -1,10 +1,10 @@
 <library path="franka_policy_controller">
   <class
-    name="franka_policy_controller/FrankaPolicyController"
-    type="franka_policy_controller::FrankaPolicyController"
+    name="franka_policy_controller/FrankaCartesianPoseController"
+    type="franka_policy_controller::FrankaCartesianPoseController"
     base_class_type="controller_interface::ControllerInterface">
     <description>
-      Effort controller for policy-generated Franka FR3 joint references.
+      Cartesian pose controller for policy-generated Franka FR3 pose references.
     </description>
   </class>
 </library>

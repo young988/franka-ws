@@ -17,10 +17,10 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
-find_package(trajectory_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
-  src/franka_policy_controller.cpp
+  src/franka_cartesian_pose_controller.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -36,7 +36,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_lifecycle
   realtime_tools
-  trajectory_msgs
+  geometry_msgs
 )
 
 pluginlib_export_plugin_description_file(controller_interface franka_policy_controller_plugin.xml)
@@ -61,7 +61,7 @@ ament_export_dependencies(
   rclcpp
   rclcpp_lifecycle
   realtime_tools
-  trajectory_msgs
+  geometry_msgs
 )
 
 ament_package()
