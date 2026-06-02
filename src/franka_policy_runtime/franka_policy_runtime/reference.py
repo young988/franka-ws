@@ -114,6 +114,49 @@ def apply_tcp_delta_in_base_frame(
     return target_position, target_quat
 
 
+def apply_tcp_delta(
+    current_position: np.ndarray,
+    current_quat_xyzw: np.ndarray,
+    action: np.ndarray,
+    *,
+    action_scale: float,
+    rotation_format: str = "axis_angle",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply IsaacLab-style relative TCP delta in the command/base frame.
+
+    Compatibility wrapper that forwards to ``apply_tcp_delta_in_base_frame``.
+
+    .. deprecated::
+        Use ``apply_tcp_delta_in_base_frame`` directly in new code.
+    """
+    return apply_tcp_delta_in_base_frame(
+        current_position,
+        current_quat_xyzw,
+        action,
+        action_scale=action_scale,
+        rotation_format=rotation_format,
+    )
+
+
+def clamp_joint_step(
+    current_positions: np.ndarray,
+    target_positions: np.ndarray,
+    *,
+    max_joint_delta: float,
+) -> np.ndarray:
+    """Clamp the joint-space step toward *target_positions* to a per-joint limit."""
+    current = np.asarray(current_positions, dtype=np.float64)
+    target = np.asarray(target_positions, dtype=np.float64)
+    if current.shape != target.shape:
+        raise ValueError(
+            f"current and target joint arrays must have the same shape, "
+            f"got {current.shape} and {target.shape}"
+        )
+    limit = abs(float(max_joint_delta))
+    delta = np.clip(target - current, -limit, limit)
+    return current + delta
+
+
 def step_toward_pose(
     current_position: np.ndarray,
     current_quat_xyzw: np.ndarray,
