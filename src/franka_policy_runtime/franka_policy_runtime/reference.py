@@ -114,23 +114,57 @@ def apply_tcp_delta(
     return target_position, target_quat
 
 
+def step_toward_pose(
+    current_position: np.ndarray,
+    current_quat_xyzw: np.ndarray,
+    target_position: np.ndarray,
+    target_quat_xyzw: np.ndarray,
+    *,
+    max_translation_step: float,
+    max_rotation_step: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Step from current toward target, clamped in Cartesian space.
+
+    Returns a pose at most *max_translation_step* in translation norm and
+    *max_rotation_step* in rotation angle away from current.
+    """
+    position = np.asarray(current_position, dtype=np.float64)
+    quat_xyzw = np.asarray(current_quat_xyzw, dtype=np.float64)
+    target_position_arr = np.asarray(target_position, dtype=np.float64)
+    target_quat_arr = np.asarray(target_quat_xyzw, dtype=np.float64)
+
+    # ---- translation ----
+    max_translation = abs(float(max_translation_step))
+    delta_position = target_position_arr - position
+    delta_norm = float(np.linalg.norm(delta_position))
+    if delta_norm > max_translation:
+        delta_position = delta_position * (max_translation / delta_norm)
+    stepped_position = position + delta_position
+
+    # ---- rotation ----
+    current_quat = quat_xyzw / np.linalg.norm(quat_xyzw)
+    target_quat = target_quat_arr / np.linalg.norm(target_quat_arr)
+    if float(np.dot(current_quat, target_quat)) < 0.0:
+        target_quat = -target_quat
+    delta_quat = _quat_multiply_xyzw(
+        target_quat,
+        np.array([-current_quat[0], -current_quat[1], -current_quat[2], current_quat[3]], dtype=np.float64),
+    )
+    delta_quat = delta_quat / np.linalg.norm(delta_quat)
+    angle = 2.0 * math.atan2(float(np.linalg.norm(delta_quat[:3])), float(abs(delta_quat[3])))
+    max_rotation = abs(float(max_rotation_step))
+    if angle > max_rotation:
+        axis_norm = float(np.linalg.norm(delta_quat[:3]))
+        if axis_norm < 1.0e-12:
+            return stepped_position, current_quat
+        axis = delta_quat[:3] / axis_norm
+        delta_quat = _quat_xyzw_from_axis_angle(axis * max_rotation)
+    stepped_quat = _quat_multiply_xyzw(delta_quat, current_quat)
+    return stepped_position, stepped_quat
+
+
 def gripper_width_from_binary_action(action_value: float, *, min_width: float, max_width: float) -> float:
     return float(min_width if float(action_value) < 0.0 else max_width)
-
-
-def clamp_joint_step(
-    current_positions: np.ndarray,
-    target_positions: np.ndarray,
-    *,
-    max_joint_delta: float,
-) -> np.ndarray:
-    current = np.asarray(current_positions, dtype=np.float64)
-    target = np.asarray(target_positions, dtype=np.float64)
-    if current.shape != target.shape:
-        raise ValueError(f"current and target joint arrays must have the same shape, got {current.shape} and {target.shape}")
-    limit = abs(float(max_joint_delta))
-    delta = np.clip(target - current, -limit, limit)
-    return current + delta
 
 
 def make_joint_trajectory(joint_names: list[str], positions: np.ndarray, duration_sec: float):

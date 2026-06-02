@@ -7,11 +7,11 @@ override ``_declare_parameters()`` and ``_create_observer()``.
 from __future__ import annotations
 
 import json
-import threading
 import time
 
 import numpy as np
 import rclpy
+from control_msgs.action import FollowJointTrajectory
 from franka_msgs.action import Move
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.msg import MoveItErrorCodes, RobotState
@@ -23,13 +23,10 @@ from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image, JointState
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
-from trajectory_msgs.msg import JointTrajectory
 
-from franka_policy_runtime.action_queue import ActionChunk, WeightedActionQueue
 from franka_policy_runtime.observers.base import BaseObserver
 from franka_policy_runtime.reference import (
     apply_tcp_delta,
-    clamp_joint_step,
     gripper_width_from_binary_action,
     make_joint_trajectory,
     split_policy_action,
@@ -50,7 +47,6 @@ class PolicyRuntimeBase(Node):
 
     def __init__(self, node_name: str = "franka_policy_runtime") -> None:
         super().__init__(node_name)
-        self.declare_parameter("mode", "single_step")
         self.declare_parameter("policy_url", "http://127.0.0.1:8000/act")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
         self.declare_parameter("wrist_image_topic", "")
@@ -58,17 +54,14 @@ class PolicyRuntimeBase(Node):
         self.declare_parameter("camera_info_topic", "")
         self.declare_parameter("joint_state_topic", "/joint_states")
         self.declare_parameter("instruction_topic", "~/instruction")
-        self.declare_parameter("reference_topic", "/franka_policy_controller/reference")
+        self.declare_parameter("trajectory_action", "/joint_trajectory_controller/follow_joint_trajectory")
         self.declare_parameter("command_frame", "fr3_link0")
         self.declare_parameter("tcp_frame", "fr3_hand_tcp")
         self.declare_parameter("move_group_name", "fr3_arm")
         self.declare_parameter("ik_service", "/compute_ik")
-        self.declare_parameter("control_period_sec", 0.2)
-        self.declare_parameter("actions_per_chunk", 1)
-        self.declare_parameter("chunk_size_threshold", 0.5)
-        self.declare_parameter("fusion_new_weight", 0.6)
+        self.declare_parameter("control_period_sec", 0.05)
+        self.declare_parameter("trajectory_duration_sec", 0.5)
         self.declare_parameter("action_scale", 0.5)
-        self.declare_parameter("max_joint_delta_per_tick", 0.04)
         self.declare_parameter("gripper_move_action", "/franka_gripper/move")
         self.declare_parameter("gripper_min_width", 0.0)
         self.declare_parameter("gripper_max_width", 0.08)
@@ -77,42 +70,34 @@ class PolicyRuntimeBase(Node):
         self.declare_parameter("gripper_deadband", 0.002)
         self.declare_parameter("joint_names", FR3_JOINT_NAMES)
 
-        # Let subclass add its own parameters.
         self._declare_parameters()
 
-        # Cache shared parameter values on attributes for convenience.
         self._joint_names: list[str] = list(self.get_parameter("joint_names").value)
-
-        self._queue = WeightedActionQueue(action_dim=7)
-        self._queue_lock = threading.Lock()
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._observer: BaseObserver = self._create_observer()
         self._observer.set_tf_buffer(self._tf_buffer)
-        self._running = True
-        self._inference_thread = threading.Thread(target=self._inference_loop, daemon=True)
         self._gripper_width = float(self.get_parameter("gripper_initial_width").value)
         self._last_gripper_goal = self._gripper_width
         self._observer.update_gripper_width(self._gripper_width)
+
         self._ik_callback_group = ReentrantCallbackGroup()
         self._control_callback_group = ReentrantCallbackGroup()
         self._ik_client = self.create_client(
-            GetPositionIK,
-            str(self.get_parameter("ik_service").value),
+            GetPositionIK, str(self.get_parameter("ik_service").value),
             callback_group=self._ik_callback_group,
         )
         self._gripper_client = ActionClient(
-            self,
-            Move,
-            str(self.get_parameter("gripper_move_action").value),
+            self, Move, str(self.get_parameter("gripper_move_action").value),
             callback_group=self._control_callback_group,
         )
-
-        self._reference_pub = self.create_publisher(
-            JointTrajectory,
-            str(self.get_parameter("reference_topic").value),
-            10,
+        self._trajectory_client = ActionClient(
+            self, FollowJointTrajectory,
+            str(self.get_parameter("trajectory_action").value),
+            callback_group=self._control_callback_group,
         )
+        self._goal_active = False
+        self._active_goal_handle = None
 
         self._create_subscriptions()
         self.create_timer(
@@ -123,13 +108,10 @@ class PolicyRuntimeBase(Node):
 
         # ---- timing accumulator ----
         self._timings: dict[str, list[float]] = {
-            "encode": [], "inference": [], "queue_ops": [],
-            "tf_lookup": [], "apply_delta": [], "ik": [], "publish": [],
+            "encode": [], "inference": [], "ik": [],
         }
         self._timing_cycle = 0
         self._timing_log_every = 5
-
-        self._inference_thread.start()
 
     # ------------------------------------------------------------------
     # Subclass extension points
@@ -219,54 +201,16 @@ class PolicyRuntimeBase(Node):
     # ------------------------------------------------------------------
 
     def destroy_node(self) -> None:
-        self._running = False
-        if self._inference_thread.is_alive():
-            self._inference_thread.join(timeout=1.0)
         super().destroy_node()
 
     # ------------------------------------------------------------------
-    # Inference
+    # Policy request
     # ------------------------------------------------------------------
-
-    def _inference_loop(self) -> None:
-        while self._running and rclpy.ok():
-            self._update_observer_tcp_pose()
-            observation = self._observer.observe()
-            if not observation.ready:
-                time.sleep(0.05)
-                continue
-
-            mode = str(self.get_parameter("mode").value)
-            with self._queue_lock:
-                queue_size = self._queue.size
-            actions_per_chunk = max(1, int(self.get_parameter("actions_per_chunk").value))
-            threshold = float(self.get_parameter("chunk_size_threshold").value)
-            should_request = (
-                mode == "streaming"
-                or queue_size == 0
-                or (mode == "chunk_async" and queue_size <= max(1, int(actions_per_chunk * threshold)))
-            )
-            if not should_request:
-                time.sleep(0.02)
-                continue
-
-            try:
-                actions = self._request_policy(observation, actions_per_chunk)
-                chunk = ActionChunk(actions=actions)
-                with self._queue_lock:
-                    if mode == "chunk_async" and self._queue.size > 0:
-                        self._queue.fuse(chunk, float(self.get_parameter("fusion_new_weight").value))
-                    else:
-                        self._queue.replace(chunk)
-            except Exception as exc:
-                self.get_logger().warn(f"policy request failed: {exc}", throttle_duration_sec=2.0)
-                time.sleep(0.1)
 
     @staticmethod
     def _encode_image_b64(image: np.ndarray) -> str:
         import base64
         import io
-
         from PIL import Image as PILImage
 
         buf = io.BytesIO()
@@ -276,14 +220,12 @@ class PolicyRuntimeBase(Node):
     @classmethod
     def _payload_from_observation(cls, observation) -> dict[str, object]:
         payload = dict(observation.payload)
-
         image = payload.pop("image", None)
         if image is not None:
             image_arr = np.asarray(image, dtype=np.uint8)
             payload["image_b64"] = cls._encode_image_b64(image_arr)
             payload["height"] = int(image_arr.shape[0])
             payload["width"] = int(image_arr.shape[1])
-
         images = payload.pop("images", None)
         if images:
             image_shapes = {}
@@ -294,7 +236,6 @@ class PolicyRuntimeBase(Node):
                 image_shapes[str(name)] = [int(image_arr.shape[0]), int(image_arr.shape[1])]
             payload["images_b64"] = images_b64
             payload["image_shapes"] = image_shapes
-
         terms = payload.get("terms")
         if terms:
             payload["terms"] = {
@@ -309,11 +250,11 @@ class PolicyRuntimeBase(Node):
         t0 = time.perf_counter()
         payload = self._payload_from_observation(observation)
         t_encode = time.perf_counter() - t0
-
         payload["unnorm_key"] = self._unnorm_key
         payload["actions_per_chunk"] = actions_per_chunk
         t1 = time.perf_counter()
-        response = requests.post(str(self.get_parameter("policy_url").value), json=payload, timeout=120.0)
+        response = requests.post(
+            str(self.get_parameter("policy_url").value), json=payload, timeout=120.0)
         t_infer = time.perf_counter() - t1
         response.raise_for_status()
         body = response.json()
@@ -323,19 +264,16 @@ class PolicyRuntimeBase(Node):
         arr = np.asarray(actions, dtype=float)
         if arr.ndim == 1:
             arr = arr.reshape(1, -1)
-
         self._timings["encode"].append(t_encode)
         self._timings["inference"].append(t_infer)
         return arr
 
     @property
     def _unnorm_key(self) -> str:
-        """Override to provide an unnormalization key (VLA-specific)."""
         return ""
 
     @property
     def _rotation_format(self) -> str:
-        """Override to set the rotation delta format: ``"axis_angle"`` or ``"rpy"``."""
         return "axis_angle"
 
     # ------------------------------------------------------------------
@@ -343,59 +281,100 @@ class PolicyRuntimeBase(Node):
     # ------------------------------------------------------------------
 
     def _control_tick(self) -> None:
-        t0 = time.perf_counter()
-        with self._queue_lock:
-            action = self._queue.pop_next()
-        if action is None:
+        """Observe → request → IK → send goal → (result cb chains)."""
+        if self._goal_active:
             return
-        self._observer.update_last_action(action)
-        current = self._observer.latest_joint_positions()
-        if current is None:
-            return
-        target = self._action_to_joint_reference(current, action)
-        if target is None:
-            return
-        msg = make_joint_trajectory(
-            self._joint_names,
-            target,
-            float(self.get_parameter("control_period_sec").value),
-        )
-        t_pub = time.perf_counter()
-        self._reference_pub.publish(msg)
-        self._handle_gripper(action)
-        self._timings["queue_ops"].append(t_pub - t0)
-        self._timings["publish"].append(time.perf_counter() - t_pub)
-        self._maybe_log_timings()
+        self._goal_active = True
 
-    def _action_to_joint_reference(self, current_joints: np.ndarray, action: np.ndarray) -> np.ndarray | None:
-        t0 = time.perf_counter()
-        tcp_pose = self._update_observer_tcp_pose()
-        if tcp_pose is None:
-            return None
-        t_tf = time.perf_counter()
+        try:
+            self._update_observer_tcp_pose()
+            observation = self._observer.observe()
+            if not observation.ready:
+                self._goal_active = False
+                return
 
-        current_position, current_quat = tcp_pose
-        target_position, target_quat = apply_tcp_delta(
-            current_position,
-            current_quat,
-            action,
-            action_scale=float(self.get_parameter("action_scale").value),
-            rotation_format=self._rotation_format,
-        )
-        t_delta = time.perf_counter()
-        result = self._compute_ik(current_joints, target_position, target_quat)
-        if result is not None:
-            result = clamp_joint_step(
-                current_joints,
-                result,
-                max_joint_delta=float(self.get_parameter("max_joint_delta_per_tick").value),
+            try:
+                actions = self._request_policy(observation, 1)
+            except Exception as exc:
+                self.get_logger().warn(
+                    f"policy request failed: {exc}", throttle_duration_sec=2.0)
+                self._goal_active = False
+                return
+
+            action = actions[0]
+            self._observer.update_last_action(action)
+            self._handle_gripper(action)
+
+            tcp_pose = self._update_observer_tcp_pose()
+            if tcp_pose is None:
+                self._goal_active = False
+                return
+
+            current_position, current_quat = tcp_pose
+            target_position, target_quat = apply_tcp_delta(
+                current_position, current_quat, action,
+                action_scale=float(self.get_parameter("action_scale").value),
+                rotation_format=self._rotation_format,
             )
-        t_ik = time.perf_counter()
 
-        self._timings["tf_lookup"].append(t_tf - t0)
-        self._timings["apply_delta"].append(t_delta - t_tf)
-        self._timings["ik"].append(t_ik - t_delta)
-        return result
+            current_joints = self._observer.latest_joint_positions()
+            if current_joints is None:
+                self._goal_active = False
+                return
+
+            target_joints = self._compute_ik(current_joints, target_position, target_quat)
+            if target_joints is None:
+                self._goal_active = False
+                return
+
+            self._send_trajectory_goal(target_joints)
+        except Exception:
+            self._goal_active = False
+            raise
+
+    def _trajectory_goal_response_cb(self, future):
+        try:
+            goal_handle = future.result()
+        except Exception as exc:
+            self.get_logger().warn(f"Trajectory goal failed: {exc}")
+            self._goal_active = False
+            self._active_goal_handle = None
+            return
+        if not goal_handle.accepted:
+            self.get_logger().warn("Trajectory goal rejected")
+            self._goal_active = False
+            self._active_goal_handle = None
+            return
+        self._active_goal_handle = goal_handle
+        goal_handle.get_result_async().add_done_callback(self._trajectory_result_cb)
+
+    def _trajectory_result_cb(self, future):
+        self._goal_active = False
+        self._active_goal_handle = None
+        self._control_tick()
+
+    # ---- shared helpers ------------------------------------------------
+
+    def _send_trajectory_goal(self, joint_positions: np.ndarray) -> None:
+        """Send a one-point trajectory goal, preempting any in-flight goal."""
+        if self._active_goal_handle is not None:
+            self._active_goal_handle.cancel_async()
+            self._active_goal_handle = None
+            self._goal_active = False
+
+        msg = make_joint_trajectory(
+            self._joint_names, joint_positions,
+            float(self.get_parameter("trajectory_duration_sec").value),
+        )
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = msg
+        try:
+            send_future = self._trajectory_client.send_goal_async(goal)
+            send_future.add_done_callback(self._trajectory_goal_response_cb)
+        except Exception as exc:
+            self.get_logger().warn(f"Failed to send trajectory goal: {exc}")
+            self._goal_active = False
+            self._active_goal_handle = None
 
     def _update_observer_tcp_pose(self) -> tuple[np.ndarray, np.ndarray] | None:
         base_frame = str(self.get_parameter("command_frame").value)
@@ -476,17 +455,10 @@ class PolicyRuntimeBase(Node):
         self._timing_cycle += 1
         if self._timing_cycle % self._timing_log_every != 0:
             return
-        lines = ["--- Timing (avg over last %d cycles) ---" % self._timing_log_every]
-        labels = [
-            ("encode",     "1. JPEG+base64"),
-            ("inference",  "2. Server infer"),
-            ("queue_ops",  "3. Queue pop"),
-            ("tf_lookup",  "4. TF lookup"),
-            ("apply_delta","5. Delta apply"),
-            ("ik",         "6. MoveIt IK"),
-            ("publish",    "7. Publish ref"),
-        ]
-        for key, label in labels:
+        lines = [f"--- Timing (avg over last {self._timing_log_every} cycles) ---"]
+        for key, label in [
+            ("encode", "1. encode"), ("inference", "2. inference"), ("ik", "3. IK"),
+        ]:
             vals = self._timings.get(key, [])
             recent = vals[-self._timing_log_every:]
             if recent:
@@ -494,14 +466,6 @@ class PolicyRuntimeBase(Node):
                 lines.append(f"  {label:20s} {avg*1000:7.1f} ms")
             if len(vals) > 200:
                 self._timings[key] = vals[-100:]
-        all_recent = []
-        for key, _ in labels:
-            vals = self._timings.get(key, [])
-            if vals:
-                all_recent.extend(vals[-self._timing_log_every:])
-        if all_recent:
-            total_per_cycle = sum(all_recent) / self._timing_log_every
-            lines.append(f"  {'TOTAL (excl infer)':20s} {total_per_cycle*1000:7.1f} ms")
         self.get_logger().info("\n".join(lines))
 
     # ------------------------------------------------------------------

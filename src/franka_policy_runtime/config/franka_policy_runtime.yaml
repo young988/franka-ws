@@ -1,6 +1,5 @@
 franka_policy_runtime:
   ros__parameters:
-    mode: single_step
     policy_url: http://127.0.0.1:8000/act
     instruction: pick up the red cube
     instruction_topic: ~/instruction
@@ -14,17 +13,14 @@ franka_policy_runtime:
     object_camera_frame: eye_to_hand_camera_color_optical_frame
     object_min_pixels: 30
     joint_state_topic: /joint_states
-    reference_topic: /franka_policy_controller/reference
+    trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
     command_frame: fr3_link0
     tcp_frame: fr3_hand_tcp
     move_group_name: fr3_arm
     ik_service: /compute_ik
-    control_period_sec: 0.5
-    actions_per_chunk: 1
-    chunk_size_threshold: 0.5
-    fusion_new_weight: 0.6
+    control_period_sec: 0.05
+    trajectory_duration_sec: 0.5
     action_scale: 0.5
-    max_joint_delta_per_tick: 0.04
     gripper_move_action: /franka_gripper/move
     gripper_min_width: 0.0
     gripper_max_width: 0.08

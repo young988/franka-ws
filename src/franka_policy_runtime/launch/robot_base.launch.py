@@ -1,7 +1,7 @@
 """Launch the robot base stack (no policy, no sensors, no RViz).
 
 This launch owns the minimal graph needed to control the FR3 arm:
-robot_state_publisher, ros2_control with franka_policy_controller, MoveIt
+robot_state_publisher, ros2_control with joint_trajectory_controller, MoveIt
 move_group for IK, Franka gripper, joint state aggregation.
 
 Design: other launches (bc_cube_stack, vla_policy) include this via
@@ -171,7 +171,7 @@ def launch_setup(context):
             ],
             output="screen",
         )
-        for controller in ["joint_state_broadcaster", "franka_policy_controller"]
+        for controller in ["joint_state_broadcaster", "joint_trajectory_controller"]
     ]
 
     joint_state_publisher = Node(

@@ -53,8 +53,8 @@ def test_policy_runtime_subscribes_to_instruction_updates():
 
 def test_policy_runtime_refreshes_tcp_pose_before_observing_for_inference():
     source = _BASE.read_text(encoding="utf-8")
-    inference_loop = source[source.index("    def _inference_loop"):]
-    refresh_index = inference_loop.index("self._update_observer_tcp_pose()")
-    observe_index = inference_loop.index("observation = self._observer.observe()")
+    control_tick = source[source.index("    def _control_tick"):]
+    refresh_index = control_tick.index("self._update_observer_tcp_pose()")
+    observe_index = control_tick.index("observation = self._observer.observe()")
 
     assert refresh_index < observe_index
