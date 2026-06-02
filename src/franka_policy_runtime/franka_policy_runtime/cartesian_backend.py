@@ -70,7 +70,7 @@ class CartesianPoseBackend:
         self.commanded_pose: PoseState | None = None
 
     def reset(self, measured_pose: PoseState) -> None:
-        """Set both ``target_pose`` and ``command_pose`` from measured."""
+        """Set both ``target_pose`` and ``commanded_pose`` from measured."""
         pose = PoseState(
             position=np.asarray(measured_pose.position, dtype=float).copy(),
             quat_xyzw=np.asarray(measured_pose.quat_xyzw, dtype=float).copy(),

@@ -90,3 +90,56 @@ def test_backend_resyncs_when_measured_pose_drift_exceeds_threshold():
 
     assert backend.target_pose.position.tolist() == pytest.approx([0.5, 0.0, 0.0])
     assert backend.commanded_pose.position.tolist() == pytest.approx([0.5, 0.0, 0.0])
+
+
+def test_backend_ingest_action_without_reset_raises_runtime_error():
+    backend = CartesianPoseBackend(
+        action_scale=1.0,
+        rotation_format="axis_angle",
+        max_translation_step_per_tick=0.05,
+        max_rotation_step_per_tick=np.pi / 6,
+    )
+    action = np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+
+    with pytest.raises(RuntimeError):
+        backend.ingest_action(action)
+
+
+def test_backend_step_commanded_pose_without_reset_raises_runtime_error():
+    backend = CartesianPoseBackend(
+        action_scale=1.0,
+        rotation_format="axis_angle",
+        max_translation_step_per_tick=0.05,
+        max_rotation_step_per_tick=np.pi / 6,
+    )
+
+    with pytest.raises(RuntimeError):
+        backend.step_commanded_pose()
+
+
+def test_backend_resync_ignores_drift_below_threshold():
+    backend = CartesianPoseBackend(
+        action_scale=1.0,
+        rotation_format="axis_angle",
+        max_translation_step_per_tick=0.05,
+        max_rotation_step_per_tick=np.pi / 6,
+        pose_sync_reset_threshold=0.2,
+    )
+    backend.reset(PoseState(
+        position=np.array([0.0, 0.0, 0.0], dtype=float),
+        quat_xyzw=np.array([0.0, 0.0, 0.0, 1.0], dtype=float),
+    ))
+    backend.ingest_action(np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float))
+
+    # target_pose advanced to [0.1, 0.0, 0.0]; commanded_pose still at origin
+    assert backend.target_pose.position.tolist() == pytest.approx([0.1, 0.0, 0.0])
+    assert backend.commanded_pose.position.tolist() == pytest.approx([0.0, 0.0, 0.0])
+
+    # measured pose is only 0.01 m from commanded_pose -- well below the 0.2 threshold
+    result = backend.maybe_resync(PoseState(
+        position=np.array([0.01, 0.0, 0.0], dtype=float),
+        quat_xyzw=np.array([0.0, 0.0, 0.0, 1.0], dtype=float),
+    ))
+
+    assert result is False
+    assert backend.target_pose.position.tolist() == pytest.approx([0.1, 0.0, 0.0])
