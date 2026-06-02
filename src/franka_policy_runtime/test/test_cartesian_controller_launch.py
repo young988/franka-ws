@@ -5,6 +5,7 @@ _CONTROLLER_CPP = Path(__file__).parents[2] / "franka_policy_controller" / "src"
 _PLUGIN_XML = Path(__file__).parents[2] / "franka_policy_controller" / "franka_policy_controller_plugin.xml"
 _RUNTIME_BASE = Path(__file__).parents[1] / "launch" / "robot_base.launch.py"
 _CONTROLLERS = Path(__file__).parents[2] / "franka_policy_controller" / "config" / "franka_bringup_cartesian_pose_controllers.yaml"
+_OLD_CONTROLLER_CPP = Path(__file__).parents[2] / "franka_policy_controller" / "src" / "franka_policy_controller.cpp"
 
 
 def test_cartesian_pose_controller_plugin_declares_pose_interfaces_and_subscription():
@@ -30,3 +31,7 @@ def test_cartesian_controller_yaml_registers_expected_controller():
     source = _CONTROLLERS.read_text(encoding="utf-8")
     assert "franka_cartesian_pose_controller" in source
     assert "franka_policy_controller/FrankaCartesianPoseController" in source
+
+
+def test_legacy_joint_reference_controller_is_removed_from_mainline():
+    assert not _OLD_CONTROLLER_CPP.exists()
