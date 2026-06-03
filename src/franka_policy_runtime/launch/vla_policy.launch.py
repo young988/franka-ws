@@ -31,7 +31,7 @@ def generate_launch_description():
         DeclareLaunchArgument("launch_sensor", default_value="true", description="Launch the eye-to-hand RealSense D435i camera."),
         # VLA observer
         DeclareLaunchArgument("instruction", default_value="pick up the cube", description="Text instruction for the OpenVLA model (e.g. 'pick up the cube', 'put the cube in the bin')."),
-        DeclareLaunchArgument("unnorm_key", default_value="fractal", description="Action unnormalization key for the OpenVLA model (dataset-specific, e.g. 'fractal', 'bridge')."),
+        DeclareLaunchArgument("unnorm_key", default_value="bridge_orig", description="Action unnormalization key for the OpenVLA model (dataset-specific, e.g. 'bridge_orig', 'fractal')."),
         # policy runtime
         DeclareLaunchArgument("policy_mode", default_value="single_step", description="Action scheduling mode: single_step (wait per action), chunk_async (overlap fuse), or streaming (replace all)."),
         DeclareLaunchArgument("policy_host", default_value="127.0.0.1", description="Policy server host address."),
