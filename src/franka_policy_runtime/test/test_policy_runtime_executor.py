@@ -58,3 +58,17 @@ def test_policy_runtime_refreshes_tcp_pose_before_observing_for_inference():
     observe_index = control_tick.index("observation = self._observer.observe()")
 
     assert refresh_index < observe_index
+
+
+def test_policy_runtime_prefers_franka_robot_state_for_tcp_pose():
+    source = _BASE.read_text(encoding="utf-8")
+
+    assert "from franka_msgs.msg import FrankaRobotState" in source
+    assert 'self.declare_parameter("tcp_pose_source", "franka_state")' in source
+    assert 'self.declare_parameter("franka_state_topic", "/franka_robot_state_broadcaster/robot_state")' in source
+    assert "self._franka_state_cb" in source
+    assert "msg.o_t_ee.pose" in source
+    assert "self._latest_franka_state_pose" in source
+    update_tcp = source[source.index("    def _update_observer_tcp_pose"):]
+    assert "_tcp_pose_from_franka_state" in update_tcp
+    assert "_lookup_tcp_pose_from_tf" in update_tcp

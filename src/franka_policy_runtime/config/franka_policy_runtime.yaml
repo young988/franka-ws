@@ -16,6 +16,9 @@ franka_policy_runtime:
     trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
     command_frame: fr3_link0
     tcp_frame: fr3_hand_tcp
+    tcp_pose_source: franka_state
+    franka_state_topic: /franka_robot_state_broadcaster/robot_state
+    franka_state_ee_frame: fr3_hand_tcp
     move_group_name: fr3_arm
     ik_service: /compute_ik
     control_period_sec: 0.05

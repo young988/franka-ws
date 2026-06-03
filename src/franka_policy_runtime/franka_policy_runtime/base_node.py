@@ -13,6 +13,7 @@ import numpy as np
 import rclpy
 from control_msgs.action import FollowJointTrajectory
 from franka_msgs.action import Move
+from franka_msgs.msg import FrankaRobotState
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.msg import MoveItErrorCodes, RobotState
 from moveit_msgs.srv import GetPositionIK
@@ -32,6 +33,11 @@ from franka_policy_runtime.reference import (
     split_policy_action,
 )
 from franka_policy_runtime.runtime_config import FR3_JOINT_NAMES
+from franka_policy_runtime.tcp_pose import (
+    compose_pose_xyzw,
+    pose_msg_to_arrays,
+    transform_msg_to_arrays,
+)
 
 
 class PolicyRuntimeBase(Node):
@@ -53,6 +59,9 @@ class PolicyRuntimeBase(Node):
         self.declare_parameter("trajectory_action", "/joint_trajectory_controller/follow_joint_trajectory")
         self.declare_parameter("command_frame", "fr3_link0")
         self.declare_parameter("tcp_frame", "fr3_hand_tcp")
+        self.declare_parameter("tcp_pose_source", "franka_state")
+        self.declare_parameter("franka_state_topic", "/franka_robot_state_broadcaster/robot_state")
+        self.declare_parameter("franka_state_ee_frame", "fr3_hand_tcp")
         self.declare_parameter("move_group_name", "fr3_arm")
         self.declare_parameter("ik_service", "/compute_ik")
         self.declare_parameter("control_period_sec", 0.05)
@@ -69,6 +78,7 @@ class PolicyRuntimeBase(Node):
         self._declare_parameters()
 
         self._joint_names: list[str] = list(self.get_parameter("joint_names").value)
+        self._latest_franka_state_pose: tuple[np.ndarray, np.ndarray] | None = None
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._observer: BaseObserver = self._create_observer()
@@ -166,6 +176,12 @@ class PolicyRuntimeBase(Node):
             10,
         )
         self.create_subscription(
+            FrankaRobotState,
+            str(self.get_parameter("franka_state_topic").value),
+            self._franka_state_cb,
+            10,
+        )
+        self.create_subscription(
             String,
             str(self.get_parameter("instruction_topic").value),
             self._instruction_cb,
@@ -187,6 +203,9 @@ class PolicyRuntimeBase(Node):
 
     def _joint_state_cb(self, msg: JointState) -> None:
         self._observer.update_joint_state(msg)
+
+    def _franka_state_cb(self, msg: FrankaRobotState) -> None:
+        self._latest_franka_state_pose = pose_msg_to_arrays(msg.o_t_ee.pose)
 
     def _instruction_cb(self, msg: String) -> None:
         if hasattr(self._observer, "update_instruction"):
@@ -373,6 +392,52 @@ class PolicyRuntimeBase(Node):
             self._active_goal_handle = None
 
     def _update_observer_tcp_pose(self) -> tuple[np.ndarray, np.ndarray] | None:
+        tcp_pose = self._current_tcp_pose()
+        if tcp_pose is None:
+            return None
+        current_position, current_quat = tcp_pose
+        self._observer.update_tcp_pose(current_position, current_quat)
+        return current_position, current_quat
+
+    def _current_tcp_pose(self) -> tuple[np.ndarray, np.ndarray] | None:
+        source = str(self.get_parameter("tcp_pose_source").value).lower()
+        if source == "tf":
+            return self._lookup_tcp_pose_from_tf()
+        if source != "franka_state":
+            self.get_logger().warn(
+                f"unknown tcp_pose_source={source!r}; falling back to TF",
+                throttle_duration_sec=2.0,
+            )
+            return self._lookup_tcp_pose_from_tf()
+        pose = self._tcp_pose_from_franka_state()
+        if pose is not None:
+            return pose
+        self.get_logger().warn(
+            "Franka robot state TCP pose is not available; falling back to TF",
+            throttle_duration_sec=2.0,
+        )
+        return self._lookup_tcp_pose_from_tf()
+
+    def _tcp_pose_from_franka_state(self) -> tuple[np.ndarray, np.ndarray] | None:
+        if self._latest_franka_state_pose is None:
+            return None
+        ee_position, ee_quat = self._latest_franka_state_pose
+        ee_frame = str(self.get_parameter("franka_state_ee_frame").value)
+        tcp_frame = str(self.get_parameter("tcp_frame").value)
+        if ee_frame == tcp_frame:
+            return ee_position.copy(), ee_quat.copy()
+        try:
+            transform = self._tf_buffer.lookup_transform(ee_frame, tcp_frame, rclpy.time.Time())
+        except TransformException as exc:
+            self.get_logger().warn(
+                f"TF lookup {ee_frame}->{tcp_frame} for Franka state TCP offset failed: {exc}",
+                throttle_duration_sec=2.0,
+            )
+            return None
+        ee_to_tcp_position, ee_to_tcp_quat = transform_msg_to_arrays(transform.transform)
+        return compose_pose_xyzw(ee_position, ee_quat, ee_to_tcp_position, ee_to_tcp_quat)
+
+    def _lookup_tcp_pose_from_tf(self) -> tuple[np.ndarray, np.ndarray] | None:
         base_frame = str(self.get_parameter("command_frame").value)
         tcp_frame = str(self.get_parameter("tcp_frame").value)
         try:
@@ -381,19 +446,7 @@ class PolicyRuntimeBase(Node):
             self.get_logger().warn(f"TF lookup {base_frame}->{tcp_frame} failed: {exc}", throttle_duration_sec=2.0)
             return None
 
-        current_position = np.array([
-            transform.transform.translation.x,
-            transform.transform.translation.y,
-            transform.transform.translation.z,
-        ], dtype=float)
-        current_quat = np.array([
-            transform.transform.rotation.x,
-            transform.transform.rotation.y,
-            transform.transform.rotation.z,
-            transform.transform.rotation.w,
-        ], dtype=float)
-        self._observer.update_tcp_pose(current_position, current_quat)
-        return current_position, current_quat
+        return transform_msg_to_arrays(transform.transform)
 
     def _compute_ik(
         self,
