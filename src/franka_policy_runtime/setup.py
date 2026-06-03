@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "vla_policy_runtime = franka_policy_runtime.vla_node:main",
             "bc_cube_stack_runtime = franka_policy_runtime.bc_cube_stack_node:main",
+            "action_test = franka_policy_runtime.action_test_node:main",
         ],
     },
 )
