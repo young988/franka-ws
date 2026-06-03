@@ -22,6 +22,7 @@ colcon build --packages-select motion_plan             # C++ package
 colcon build --packages-up-to franka_policy_runtime    # package + deps
 source install/setup.bash                             # overlay after build
 colcon test --packages-select franka_policy_runtime
+colcon test --packages-select policy_server
 colcon test --packages-select handeye_calibration
 colcon test-result --verbose                          # inspect failures
 ```
@@ -39,39 +40,35 @@ PYTHONPATH=src/handeye_calibration pytest src/handeye_calibration/test/ -q
 
 ### Policy Control Pipeline
 
-The end-to-end learned policy stack:
+The end-to-end learned policy stack uses MoveIt IK to convert Cartesian policy deltas into joint trajectories:
 
 ```
 Camera image → PolicyRuntimeBase subclass (VLAPolicyRuntime or BCCubeStackPolicyRuntime)
                  → Observer (OpenVLAObserver or IsaacLabStackBCObserver) assembles observation
                  → HTTP POST /act → policy_server (FastAPI + uvicorn)
-                      → backend.predict_payload() → 7D action array(s) [dx,dy,dz,drx,dpitch,dyaw,gripper]
+                      → backend.predict_payload() → 7D action array [dx,dy,dz,ax,ay,az,gripper]
                  ← JSON response
-               → ActionChunk → WeightedActionQueue (single_step / chunk_async / streaming modes)
-               → pop_next() on control tick
-               → TF lookup (current TCP pose in command_frame)
-               → apply_tcp_delta() — clamped translation + RPY→quaternion composition
-               → MoveIt GetPositionIK service (collision-aware)
-               → JointTrajectory published to /franka_policy_controller/reference
-               → FrankaPolicyController (ros2_control effort-level PD plugin)
-                 → effort commands to Franka FR3
+               → apply_tcp_delta() in base frame (axis-angle or RPY format)
+               → MoveIt GetPositionIK (/compute_ik) → joint positions
+               → send_goal_async(FollowJointTrajectory) → joint_trajectory_controller
+                  → PID effort control on Franka FR3 joints
 ```
 
 Key design decisions:
-- **Template method pattern.** `PolicyRuntimeBase` in `base_node.py` contains ALL shared logic (subscriptions, inference thread, control tick, IK, gripper, timing). Subclasses (`VLAPolicyRuntime`, `BCCubeStackPolicyRuntime`) only override `_declare_parameters()` and `_create_observer()`. No more runtime dispatch on `backend_observer`.
-- **No Cartesian path planning.** Each policy action is converted to a single target joint configuration via MoveIt IK (`GetPositionIK`), and the controller tracks it as a joint-space reference. The controller natively preempts when a new reference arrives.
-- **Controller, not planner.** `FrankaPolicyController` is a ros2_control effort-level PD tracking controller (not a trajectory controller). It receives `JointTrajectory` messages on `~/reference`, extracts the first point's positions, and applies `effort = P*(q_des - q) + D*(-q_dot)` with configurable per-joint gains and effort limits. References older than `reference_timeout_sec` are ignored (controller holds position).
-- **Three scheduling modes**: `single_step` (wait per action), `chunk_async` (overlap-fuse), `streaming` (replace queue).
-- **Gripper** is controlled directly by the runtime node via `franka_gripper/move` action, integrating the 7th action dimension as a cumulative width delta.
+- **Template method pattern.** `PolicyRuntimeBase` in `base_node.py` contains ALL shared logic (subscriptions, inference, IK, trajectory goal, gripper, timing). Subclasses (`VLAPolicyRuntime`, `BCCubeStackPolicyRuntime`) only override `_declare_parameters()` and `_create_observer()`, plus `_unnorm_key` and `_rotation_format` properties.
+- **Policy delta → MoveIt IK → joint trajectory.** Policy actions are 7D Cartesian TCP deltas (6 DoF + gripper). `apply_tcp_delta()` composes the delta onto the current TCP pose in the base frame. MoveIt IK converts the target Cartesian pose to joint positions. The result is sent as a one-point `JointTrajectory` via `FollowJointTrajectory` action to the standard `joint_trajectory_controller`.
+- **Two rotation delta formats**: `"axis_angle"` (IsaacLab convention, default) and `"rpy"` (OpenVLA convention), set via `_rotation_format` property on the runtime subclass.
+- **Single-step control loop.** On each `_control_tick()`, the runtime observes, requests one action, runs IK, sends the trajectory goal, and waits for `_trajectory_result_cb` before requesting the next action. The `WeightedActionQueue` (`action_queue.py`) provides chunk and streaming modes but is not wired in the current single-step flow.
+- **Gripper** is controlled directly by the runtime node via `franka_gripper/move` action, integrating the 7th action dimension as a binary open/close decision.
 - **`run_node(node_cls, *, args, num_threads)`** is the shared entry-point utility in `base_node.py`. Every `main()` calls `run_node(TheirClass)`.
 
 ### `franka_policy_runtime` — Policy Runtime Bridge (Python, `ament_python`)
 
-The central node that bridges policy inference to the realtime controller.
+The central node that bridges policy inference to the robot controller.
 
 **Node hierarchy** (template method):
-- **`base_node.py`** — `PolicyRuntimeBase(Node)`: all shared logic (~500 lines). Declares common parameters, creates subscriptions, runs inference thread, pops actions from queue, does TF lookup + `apply_tcp_delta()` + MoveIt IK, publishes `JointTrajectory`, handles gripper. Uses `MultiThreadedExecutor` (2 threads) with separate `ReentrantCallbackGroup` for IK and control. Includes per-cycle timing instrumentation. Also provides `run_node()` utility.
-- **`vla_node.py`** — `VLAPolicyRuntime(PolicyRuntimeBase)`: declares `instruction` + `unnorm_key` params, creates `OpenVLAObserver`. Entry point: `vla_policy_runtime`.
+- **`base_node.py`** — `PolicyRuntimeBase(Node)`: all shared logic (~510 lines). Declares common parameters, creates subscriptions, runs the single-step control loop (observe → infer → IK → trajectory goal), manages gripper. Uses `MultiThreadedExecutor` (2 threads) with `ReentrantCallbackGroup` for control and IK. Includes per-cycle timing instrumentation (encode / inference / IK). Also provides `run_node()` utility.
+- **`vla_node.py`** — `VLAPolicyRuntime(PolicyRuntimeBase)`: declares `instruction` + `unnorm_key` params, creates `OpenVLAObserver`, overrides `_rotation_format` to `"rpy"`. Entry point: `vla_policy_runtime`.
 - **`bc_cube_stack_node.py`** — `BCCubeStackPolicyRuntime(PolicyRuntimeBase)`: declares `object_pose_provider` + `object_target_color` + `object_camera_frame` + `object_min_pixels` params, creates `IsaacLabStackBCObserver` (with `ColorCubeObjectPoseProvider` + `ColorCubeStackObjectProvider` when `object_pose_provider == "color_cube"`). Entry point: `bc_cube_stack_runtime`.
 
 **Observer package** (`observers/`):
@@ -81,25 +78,27 @@ The central node that bridges policy inference to the realtime controller.
 - **`color_cube.py`** — `ColorCubeObjectPoseProvider` and `ColorCubeStackObjectProvider`: color-based cube detection for the BC stack task.
 
 **Other modules:**
-- **`action_queue.py`** — `WeightedActionQueue`: fixed-dimension action buffer with weighted overlap fusion (`fuse()`) and FIFO pop (`pop_next()`).
-- **`reference.py`** — Pure functions: `split_policy_action()`, `apply_tcp_delta()`, `make_joint_trajectory()`.
-- **`runtime_config.py`** — Only `FR3_JOINT_NAMES` constant. The old `RuntimeConfig` dataclass was removed (dead code).
+- **`reference.py`** — Pure functions: `split_policy_action()`, `apply_tcp_delta()` (axis-angle or RPY delta composition in base frame), `step_toward_pose()` (slerp-interpolated pose stepping with clamping), `gripper_width_from_binary_action()`, `make_joint_trajectory()`.
+- **`action_queue.py`** — `WeightedActionQueue`: fixed-dimension action buffer with weighted overlap fusion (`fuse()`) and FIFO pop (`pop_next()`). Defined but not wired in the current single-step flow.
+- **`runtime_config.py`** — Only `FR3_JOINT_NAMES` constant.
 
-**Config:** `config/franka_policy_runtime.yaml` — shared runtime parameters (mode, policy_url, topics, frames, delta limits, gripper settings, IK service, control period, joint_names). Per-policy parameters (instruction, unnorm_key, object_*) are overridden by their respective launch files.
+**Config:** `config/franka_policy_runtime.yaml` — shared runtime parameters (policy_url, topics, frames, trajectory_action, ik_service, move_group_name, control_period_sec, trajectory_duration_sec, action_scale, gripper settings, joint_names). Per-policy parameters (instruction, unnorm_key, object_*) are overridden by their respective launch files.
 
-**Launch file hierarchy** (base → per-policy, no more monolithic family bucket):
-- `robot_base.launch.py` — Pure robot stack: robot_state_publisher + ros2_control (franka_policy_controller + joint_state_broadcaster) + MoveIt move_group (OMPL, for IK) + joint_state_publisher + Franka gripper. **No sensors, no inference, no RViz.** Other launches include this via `IncludeLaunchDescription` and append their own cameras + inference.
-- `vla_policy.launch.py` — robot_base + eye-to-hand RealSense (color only, depth disabled) + handeye TF + policy_server (OpenVLA) + `vla_policy_runtime` node. Args: instruction, unnorm_key.
+**Launch file hierarchy** (base → per-policy):
+- `robot_base.launch.py` — Pure robot stack: robot_state_publisher + ros2_control (joint_trajectory_controller + joint_state_broadcaster + franka_robot_state_broadcaster) + MoveIt move_group + joint_state_publisher + Franka gripper. **No sensors, no inference, no RViz.** Other launches include this via `IncludeLaunchDescription` and append their own cameras + inference.
+- `vla_policy.launch.py` — robot_base + eye-to-hand RealSense (color only, depth disabled) + handeye TF + policy_server (OpenVLA) + `vla_policy_runtime` node. Args: instruction, unnorm_key, policy_mode, etc.
 - `bc_cube_stack.launch.py` — robot_base + eye-to-hand RealSense (color + depth) + handeye TF + policy_server (bc_isaaclab_stack) + `bc_cube_stack_runtime` node. Args: object_pose_provider, object_target_color, object_camera_frame, object_min_pixels.
 
-### `franka_policy_controller` — Realtime Effort Controller (C++, `ament_cmake`)
+### `franka_policy_controller` — Custom Effort Controller (C++, `ament_cmake`)
 
-A ros2_control `ControllerInterface` plugin that tracks joint position references with PD + effort limits.
+A custom ros2_control `ControllerInterface` plugin that receives `JointTrajectory` references and runs a PD control law directly in effort space (bypassing the standard `joint_trajectory_controller`).
 
-- **`FrankaPolicyController`** — Lifecycle-managed controller. On configure: reads joint names, per-joint P/D gains, effort limits, and `reference_timeout_sec` from ROS params; creates a subscription to `~/reference` (`JointTrajectory`). On update: reads current joint state from hardware interfaces, checks if the buffered reference is fresh (within timeout), computes PD effort with per-joint clamping, writes to effort command interfaces. Uses `realtime_tools::RealtimeBuffer` for lock-free reference passing between the non-RT subscription callback and the RT update loop.
+- **`FrankaPolicyController`** — Lifecycle-managed controller. On configure: reads `joints`, `p_gains`, `d_gains`, `effort_limits`, `reference_timeout_sec` params; creates a subscription to `~/reference` (`JointTrajectory`). On activate: seeds the realtime buffer with current joint positions. On update: reads position + velocity from state interfaces, computes `effort = P * position_error + D * (-velocity)`, clamps to effort limits, writes to command interfaces. On reference timeout: holds current position.
+- **`JointReference`** — struct: `positions` (vector of doubles), `stamp`.
 - **Plugin registration:** `franka_policy_controller_plugin.xml` → `PLUGINLIB_EXPORT_CLASS`
-- **Config:** `config/franka_bringup_policy_controllers.yaml` — controller manager config (1000 Hz update rate, RT priority 98) and per-joint gains/limits.
-- Default gains (code defaults, overridable by yaml): `[600, 600, 600, 600, 250, 150, 50]` for P, `[30, 30, 30, 30, 10, 10, 5]` for D, `[30, 30, 30, 30, 15, 12, 10]` for effort limits. `reference_timeout_sec` defaults to 0.5 in code. The YAML config uses much lower gains for safety — `[60, 60, 60, 60, 25, 15, 5]` P / `[6, 6, 6, 6, 2, 2, 1]` D with 2.0 s timeout.
+- **Config:** `config/franka_policy_controller.yaml` — controller params with default PD gains and effort limits. `config/franka_bringup_policy_controllers.yaml` — controller manager config using `joint_trajectory_controller` (standard, not the custom one).
+
+**Note:** The custom `FrankaPolicyController` exists as an alternative to the standard `joint_trajectory_controller` but is **not wired into any launch file** on the `main` branch. The `robot_base.launch.py` uses the standard `joint_trajectory_controller` with `franka_bringup_policy_controllers.yaml`.
 
 ### `policy_server` — HTTP Inference Server (Python, `ament_python`)
 
@@ -109,10 +108,10 @@ Serves learned policy models over HTTP. Runs as a standalone uvicorn subprocess 
 
 **Backend plugin system** (`policy_server/backends/`):
 - **`base.py`** — `BasePolicyBackend(ABC)`: `predict_payload(payload)` is the sole abstract method. `predict(image, instruction, unnorm_key)` is a non-abstract convenience method (default raises `NotImplementedError`). `_decode_image_from_payload()` static helper for JPEG→numpy decoding shared by image backends. `__init_subclass__` auto-registers every subclass by its `backend_type` class attribute into `_registry`.
-- **`factory.py`** — `create_backend(config)`: looks up `config["type"]` in `BasePolicyBackend._registry`. No more hardcoded if/elif chain. Imports all backend modules (triggers registration), then does a simple dict lookup.
-- **`config.py`** — `default_config()`: collects per-backend defaults from each registered backend's `default_config()` static method, assembles the full config. No more central hardcoded backend configs. `merge_config()` / `load_config()` for YAML deep-merge.
-- **`openvla.py`** — `OpenVLABackend`: loads OpenVLA via HuggingFace `AutoModelForVision2Seq`. 4-bit quantization default. Implements both `predict_payload()` (JPEG decode → `predict()`) and `predict()` (raw image + instruction).
-- **`bc_isaaclab_stack.py`** — `BCIsaacLabStackBackend`: structured-terms backend for robomimic BC checkpoints. `predict_payload()` validates required_terms shape, formats observation dict, runs policy. Does NOT support `predict()` (inherits `NotImplementedError`). Lazy-loads robomimic at first inference.
+- **`factory.py`** — `create_backend(config)`: looks up `config["type"]` in `BasePolicyBackend._registry`. Imports all backend modules (triggers registration), then does a simple dict lookup. No hardcoded if/elif chain.
+- **`config.py`** — `default_config()`: collects per-backend defaults from each registered backend's `default_config()` static method. `merge_config()` / `load_config()` for YAML deep-merge.
+- **`openvla.py`** — `OpenVLABackend`: loads OpenVLA via HuggingFace `AutoModelForVision2Seq`. 4-bit quantization default. Implements both `predict_payload()` and `predict()`.
+- **`bc_isaaclab_stack.py`** — `BCIsaacLabStackBackend`: structured-terms backend for robomimic BC checkpoints. Validates required_terms shape, formats observation dict, runs policy. Lazy-loads robomimic at first inference.
 - **`dummy.py`** — `DummyBackend`: returns a fixed configured action. For testing/dry-run.
 - **`python_plugin.py`** — `PythonPluginBackend`: generic `module:ClassName` loader. Escape hatch for custom backends without server changes.
 
