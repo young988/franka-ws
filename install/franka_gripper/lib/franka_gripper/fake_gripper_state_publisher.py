@@ -1,0 +1,1 @@
+/home/young/ros2_ws/src/franka_ros/src/franka_gripper/scripts/fake_gripper_state_publisher.py

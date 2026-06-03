@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/motion_plan/ament_cmake_environment_hooks/local_setup.sh

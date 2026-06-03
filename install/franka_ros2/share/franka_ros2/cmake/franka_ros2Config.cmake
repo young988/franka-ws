@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_ros2/ament_cmake_core/franka_ros2Config.cmake

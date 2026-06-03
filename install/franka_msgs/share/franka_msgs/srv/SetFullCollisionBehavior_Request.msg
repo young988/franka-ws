@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_msgs/rosidl_cmake/srv/SetFullCollisionBehavior_Request.msg

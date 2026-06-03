@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/realsense2_camera_msgs/rosidl_typesupport_fastrtps_c/realsense2_camera_msgs/srv/detail/application_config_read__rosidl_typesupport_fastrtps_c.h

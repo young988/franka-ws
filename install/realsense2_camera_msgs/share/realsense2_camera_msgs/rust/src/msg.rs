@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/realsense2_camera_msgs/rosidl_generator_rs/realsense2_camera_msgs/rust/src/msg.rs

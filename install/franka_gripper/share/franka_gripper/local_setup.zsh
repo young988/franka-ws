@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_gripper/ament_cmake_environment_hooks/local_setup.zsh

@@ -1,0 +1,9 @@
+source;share/franka_policy_runtime/hook/pythonpath.ps1
+source;share/franka_policy_runtime/hook/pythonpath.dsv
+source;share/franka_policy_runtime/hook/pythonpath.sh
+source;share/franka_policy_runtime/hook/ament_prefix_path.ps1
+source;share/franka_policy_runtime/hook/ament_prefix_path.dsv
+source;share/franka_policy_runtime/hook/ament_prefix_path.sh
+source;../../build/franka_policy_runtime/share/franka_policy_runtime/hook/pythonpath_develop.ps1
+source;../../build/franka_policy_runtime/share/franka_policy_runtime/hook/pythonpath_develop.dsv
+source;../../build/franka_policy_runtime/share/franka_policy_runtime/hook/pythonpath_develop.sh

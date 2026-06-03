@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_msgs/rosidl_generator_cpp/franka_msgs/msg/detail/franka_robot_state__traits.hpp

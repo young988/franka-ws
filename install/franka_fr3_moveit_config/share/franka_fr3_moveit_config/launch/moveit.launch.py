@@ -1,0 +1,1 @@
+/home/young/ros2_ws/src/franka_ros/src/franka_fr3_moveit_config/launch/moveit.launch.py

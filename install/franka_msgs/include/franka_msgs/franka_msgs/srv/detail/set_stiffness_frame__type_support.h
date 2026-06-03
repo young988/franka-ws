@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_msgs/rosidl_generator_c/franka_msgs/srv/detail/set_stiffness_frame__type_support.h

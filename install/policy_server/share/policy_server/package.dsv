@@ -1,0 +1,9 @@
+source;share/policy_server/hook/pythonpath.ps1
+source;share/policy_server/hook/pythonpath.dsv
+source;share/policy_server/hook/pythonpath.sh
+source;share/policy_server/hook/ament_prefix_path.ps1
+source;share/policy_server/hook/ament_prefix_path.dsv
+source;share/policy_server/hook/ament_prefix_path.sh
+source;../../build/policy_server/share/policy_server/hook/pythonpath_develop.ps1
+source;../../build/policy_server/share/policy_server/hook/pythonpath_develop.dsv
+source;../../build/policy_server/share/policy_server/hook/pythonpath_develop.sh

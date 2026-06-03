@@ -1,0 +1,1 @@
+/home/young/ros2_ws/build/franka_semantic_components/ament_cmake_core/franka_semantic_componentsConfig-version.cmake
