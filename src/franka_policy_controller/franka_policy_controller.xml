@@ -1,0 +1,9 @@
+<library path="franka_policy_controller">
+  <class name="franka_policy_controller/PolicyPositionController"
+         type="franka_policy_controller::PolicyPositionController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Joint position controller that accepts policy target joint states and approaches them with realtime velocity limiting.
+    </description>
+  </class>
+</library>
