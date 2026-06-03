@@ -7,7 +7,7 @@ ColorCubeStackObjectProvider).
 Usage:
     ros2 launch franka_policy_runtime bc_cube_stack.launch.py
     ros2 launch franka_policy_runtime bc_cube_stack.launch.py \
-        use_fake_hardware:=true load_gripper:=false
+        load_gripper:=false
 """
 
 from launch import LaunchDescription
@@ -27,7 +27,6 @@ def generate_launch_description():
     args = [
         # robot base (passed through)
         DeclareLaunchArgument("robot_ip", default_value="172.16.0.2", description="FR3 robot IP address (use 192.168.0.100 for fake hardware)."),
-        DeclareLaunchArgument("use_fake_hardware", default_value="false", description="Run mock hardware interfaces instead of a real FR3."),
         DeclareLaunchArgument("load_gripper", default_value="true", description="Include Franka gripper in robot description and launch driver."),
         DeclareLaunchArgument("launch_sensor", default_value="true", description="Launch the eye-to-hand RealSense D435i camera (color + depth)."),
         # BC observer / perception
@@ -74,7 +73,6 @@ def generate_launch_description():
         ]),
         launch_arguments={
             "robot_ip": LaunchConfiguration("robot_ip"),
-            "use_fake_hardware": LaunchConfiguration("use_fake_hardware"),
             "load_gripper": LaunchConfiguration("load_gripper"),
         }.items(),
     )

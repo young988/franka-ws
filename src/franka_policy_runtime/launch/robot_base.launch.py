@@ -22,7 +22,7 @@ from launch.actions import (
     OpaqueFunction,
     Shutdown,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -66,8 +66,6 @@ def fr3_ompl_config():
 def launch_setup(context):
     namespace = LaunchConfiguration("namespace")
     robot_ip = LaunchConfiguration("robot_ip")
-    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
-    fake_sensor_commands = LaunchConfiguration("fake_sensor_commands")
     load_gripper = LaunchConfiguration("load_gripper")
 
     franka_xacro_file = os.path.join(
@@ -84,10 +82,8 @@ def launch_setup(context):
         load_gripper,
         " robot_ip:=",
         robot_ip,
-        " use_fake_hardware:=",
-        use_fake_hardware,
-        " fake_sensor_commands:=",
-        fake_sensor_commands,
+        " use_fake_hardware:=false"
+        " fake_sensor_commands:=false"
         " ros2_control:=true",
     ])
     robot_description = {
@@ -192,7 +188,6 @@ def launch_setup(context):
         namespace=namespace,
         arguments=["franka_robot_state_broadcaster"],
         output="screen",
-        condition=UnlessCondition(use_fake_hardware),
     )
 
     gripper_launch = IncludeLaunchDescription(
@@ -205,7 +200,7 @@ def launch_setup(context):
         ]),
         launch_arguments={
             "robot_ip": robot_ip,
-            "use_fake_hardware": use_fake_hardware,
+            "use_fake_hardware": "false",
             "namespace": namespace,
         }.items(),
         condition=IfCondition(load_gripper),
@@ -226,8 +221,6 @@ def generate_launch_description():
         [
         DeclareLaunchArgument("robot_ip", default_value="172.16.0.2", description="FR3 robot IP address (use 192.168.0.100 for fake hardware)."),
         DeclareLaunchArgument("namespace", default_value="", description="ROS namespace to launch the robot stack in (empty = no namespace)."),
-        DeclareLaunchArgument("use_fake_hardware", default_value="false", description="Run mock hardware interfaces instead of connecting to a real FR3."),
-        DeclareLaunchArgument("fake_sensor_commands", default_value="false", description="Publish simulated joint state / sensor data from fake hardware."),
         DeclareLaunchArgument("load_gripper", default_value="true", description="Include the Franka gripper in the robot description and launch its driver."),
         OpaqueFunction(function=launch_setup),
     ],)
