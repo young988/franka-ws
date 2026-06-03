@@ -35,14 +35,10 @@ from franka_policy_runtime.runtime_config import FR3_JOINT_NAMES
 
 
 class PolicyRuntimeBase(Node):
-    """Async inference scheduler and reference publisher.
+    """Async single-step inference-to-joint-trajectory bridge.
 
-    Modes:
-    - single_step: wait for each predicted action to be consumed before
-      asking again.
-    - chunk_async: request a new chunk before the current queue is
-      exhausted and fuse overlap.
-    - streaming: replace the queue with each latest policy output.
+    Each control tick: observe → request one action → IK → send & track
+    trajectory goal → wait for result → next tick.
     """
 
     def __init__(self, node_name: str = "franka_policy_runtime") -> None:
@@ -244,14 +240,14 @@ class PolicyRuntimeBase(Node):
             }
         return payload
 
-    def _request_policy(self, observation, actions_per_chunk: int) -> np.ndarray:
+    def _request_policy(self, observation) -> np.ndarray:
         import requests
 
         t0 = time.perf_counter()
         payload = self._payload_from_observation(observation)
         t_encode = time.perf_counter() - t0
         payload["unnorm_key"] = self._unnorm_key
-        payload["actions_per_chunk"] = actions_per_chunk
+        payload["actions_per_chunk"] = 1
         t1 = time.perf_counter()
         response = requests.post(
             str(self.get_parameter("policy_url").value), json=payload, timeout=120.0)
@@ -294,7 +290,7 @@ class PolicyRuntimeBase(Node):
                 return
 
             try:
-                actions = self._request_policy(observation, 1)
+                actions = self._request_policy(observation)
             except Exception as exc:
                 self.get_logger().warn(
                     f"policy request failed: {exc}", throttle_duration_sec=2.0)

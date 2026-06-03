@@ -33,7 +33,6 @@ def generate_launch_description():
         DeclareLaunchArgument("instruction", default_value="pick up the cube", description="Text instruction for the OpenVLA model (e.g. 'pick up the cube', 'put the cube in the bin')."),
         DeclareLaunchArgument("unnorm_key", default_value="bridge_orig", description="Action unnormalization key for the OpenVLA model (dataset-specific, e.g. 'bridge_orig', 'fractal')."),
         # policy runtime
-        DeclareLaunchArgument("policy_mode", default_value="single_step", description="Action scheduling mode: single_step (wait per action), chunk_async (overlap fuse), or streaming (replace all)."),
         DeclareLaunchArgument("policy_host", default_value="127.0.0.1", description="Policy server host address."),
         DeclareLaunchArgument("policy_port", default_value="8000", description="Policy server port."),
         DeclareLaunchArgument("start_policy_server", default_value="true", description="Launch the policy server subprocess from this launch file."),
@@ -140,7 +139,6 @@ def generate_launch_description():
             {
                 "instruction": LaunchConfiguration("instruction"),
                 "unnorm_key": LaunchConfiguration("unnorm_key"),
-                "mode": LaunchConfiguration("policy_mode"),
                 "policy_url": PythonExpression([
                     "'http://",
                     LaunchConfiguration("policy_host"),

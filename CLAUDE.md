@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-ROS 2 Humble (realtime kernel) colcon workspace for a Franka FR3 arm with RealSense D435i camera. Five in-house ROS packages (`motion_plan`, `handeye_calibration`, `franka_policy_runtime`, `franka_policy_controller`, `policy_server`) plus vendor packages (`franka_ros`, `realsense-ros`) and three external non-ROS directories (`openvla` — OpenVLA training/eval code; `anygrasp_sdk` — AnyGrasp grasp detection SDK; `IsaacLab` — ignored via `COLCON_IGNORE`).
+ROS 2 Humble (realtime kernel) colcon workspace for a Franka FR3 arm with RealSense D435i camera. Four in-house ROS packages (`motion_plan`, `handeye_calibration`, `franka_policy_runtime`, `policy_server`) plus vendor packages (`franka_ros`, `realsense-ros`) and three external non-ROS directories (`openvla` — OpenVLA training/eval code; `anygrasp_sdk` — AnyGrasp grasp detection SDK; `IsaacLab` — ignored via `COLCON_IGNORE`).
 
 Always source the workspace overlay before running nodes: `source install/setup.bash`.
 
@@ -12,12 +12,15 @@ Always source the workspace overlay before running nodes: `source install/setup.
 
 ## Build & Test
 
+Always use `--symlink-install` so Python changes take effect without rebuilding.
+The `install/` directory is tracked in git — branch switches don't require
+rebuilding unless C++ packages or vendor packages changed.
+
 ```bash
-colcon build                                          # full workspace
-colcon build --packages-select franka_policy_runtime   # Python-only package
+colcon build --symlink-install                        # full workspace
+colcon build --symlink-install --packages-select franka_policy_runtime   # Python-only package
 colcon build --packages-select policy_server           # Python-only package
 colcon build --packages-select handeye_calibration     # Python-only package
-colcon build --packages-select franka_policy_controller # C++ package
 colcon build --packages-select motion_plan             # C++ package
 colcon build --packages-up-to franka_policy_runtime    # package + deps
 source install/setup.bash                             # overlay after build
@@ -27,7 +30,7 @@ colcon test --packages-select handeye_calibration
 colcon test-result --verbose                          # inspect failures
 ```
 
-`franka_policy_runtime`, `policy_server`, and `handeye_calibration` are pure Python packages — no C++ compilation needed. `franka_policy_controller` and `motion_plan` are C++ (`ament_cmake`). `franka_policy_controller` and `motion_plan` have no automated tests.
+`franka_policy_runtime`, `policy_server`, and `handeye_calibration` are pure Python packages — no C++ compilation needed. `motion_plan` is C++ (`ament_cmake`). `motion_plan` has no automated tests.
 
 For fast Python-only test iteration without a full build:
 ```bash
@@ -58,7 +61,7 @@ Key design decisions:
 - **Template method pattern.** `PolicyRuntimeBase` in `base_node.py` contains ALL shared logic (subscriptions, inference, IK, trajectory goal, gripper, timing). Subclasses (`VLAPolicyRuntime`, `BCCubeStackPolicyRuntime`) only override `_declare_parameters()` and `_create_observer()`, plus `_unnorm_key` and `_rotation_format` properties.
 - **Policy delta → MoveIt IK → joint trajectory.** Policy actions are 7D Cartesian TCP deltas (6 DoF + gripper). `apply_tcp_delta()` composes the delta onto the current TCP pose in the base frame. MoveIt IK converts the target Cartesian pose to joint positions. The result is sent as a one-point `JointTrajectory` via `FollowJointTrajectory` action to the standard `joint_trajectory_controller`.
 - **Two rotation delta formats**: `"axis_angle"` (IsaacLab convention, default) and `"rpy"` (OpenVLA convention), set via `_rotation_format` property on the runtime subclass.
-- **Single-step control loop.** On each `_control_tick()`, the runtime observes, requests one action, runs IK, sends the trajectory goal, and waits for `_trajectory_result_cb` before requesting the next action. The `WeightedActionQueue` (`action_queue.py`) provides chunk and streaming modes but is not wired in the current single-step flow.
+- **Single-step control loop.** On each `_control_tick()`, the runtime observes, requests one action, runs IK, sends the trajectory goal, and waits for `_trajectory_result_cb` before requesting the next action.
 - **Gripper** is controlled directly by the runtime node via `franka_gripper/move` action, integrating the 7th action dimension as a binary open/close decision.
 - **`run_node(node_cls, *, args, num_threads)`** is the shared entry-point utility in `base_node.py`. Every `main()` calls `run_node(TheirClass)`.
 
@@ -79,26 +82,16 @@ The central node that bridges policy inference to the robot controller.
 
 **Other modules:**
 - **`reference.py`** — Pure functions: `split_policy_action()`, `apply_tcp_delta()` (axis-angle or RPY delta composition in base frame), `step_toward_pose()` (slerp-interpolated pose stepping with clamping), `gripper_width_from_binary_action()`, `make_joint_trajectory()`.
-- **`action_queue.py`** — `WeightedActionQueue`: fixed-dimension action buffer with weighted overlap fusion (`fuse()`) and FIFO pop (`pop_next()`). Defined but not wired in the current single-step flow.
 - **`runtime_config.py`** — Only `FR3_JOINT_NAMES` constant.
 
 **Config:** `config/franka_policy_runtime.yaml` — shared runtime parameters (policy_url, topics, frames, trajectory_action, ik_service, move_group_name, control_period_sec, trajectory_duration_sec, action_scale, gripper settings, joint_names). Per-policy parameters (instruction, unnorm_key, object_*) are overridden by their respective launch files.
 
 **Launch file hierarchy** (base → per-policy):
 - `robot_base.launch.py` — Pure robot stack: robot_state_publisher + ros2_control (joint_trajectory_controller + joint_state_broadcaster + franka_robot_state_broadcaster) + MoveIt move_group + joint_state_publisher + Franka gripper. **No sensors, no inference, no RViz.** Other launches include this via `IncludeLaunchDescription` and append their own cameras + inference.
-- `vla_policy.launch.py` — robot_base + eye-to-hand RealSense (color only, depth disabled) + handeye TF + policy_server (OpenVLA) + `vla_policy_runtime` node. Args: instruction, unnorm_key, policy_mode, etc.
+- `vla_policy.launch.py` — robot_base + eye-to-hand RealSense (color only, depth disabled) + handeye TF + policy_server (OpenVLA) + `vla_policy_runtime` node. Args: instruction, unnorm_key.
 - `bc_cube_stack.launch.py` — robot_base + eye-to-hand RealSense (color + depth) + handeye TF + policy_server (bc_isaaclab_stack) + `bc_cube_stack_runtime` node. Args: object_pose_provider, object_target_color, object_camera_frame, object_min_pixels.
 
-### `franka_policy_controller` — Custom Effort Controller (C++, `ament_cmake`)
-
-A custom ros2_control `ControllerInterface` plugin that receives `JointTrajectory` references and runs a PD control law directly in effort space (bypassing the standard `joint_trajectory_controller`).
-
-- **`FrankaPolicyController`** — Lifecycle-managed controller. On configure: reads `joints`, `p_gains`, `d_gains`, `effort_limits`, `reference_timeout_sec` params; creates a subscription to `~/reference` (`JointTrajectory`). On activate: seeds the realtime buffer with current joint positions. On update: reads position + velocity from state interfaces, computes `effort = P * position_error + D * (-velocity)`, clamps to effort limits, writes to command interfaces. On reference timeout: holds current position.
-- **`JointReference`** — struct: `positions` (vector of doubles), `stamp`.
-- **Plugin registration:** `franka_policy_controller_plugin.xml` → `PLUGINLIB_EXPORT_CLASS`
-- **Config:** `config/franka_policy_controller.yaml` — controller params with default PD gains and effort limits. `config/franka_bringup_policy_controllers.yaml` — controller manager config using `joint_trajectory_controller` (standard, not the custom one).
-
-**Note:** The custom `FrankaPolicyController` exists as an alternative to the standard `joint_trajectory_controller` but is **not wired into any launch file** on the `main` branch. The `robot_base.launch.py` uses the standard `joint_trajectory_controller` with `franka_bringup_policy_controllers.yaml`.
+The ros2_control configuration (`franka_bringup_policy_controllers.yaml`) lives in `config/` and configures the standard `joint_trajectory_controller`, `joint_state_broadcaster`, and `franka_robot_state_broadcaster` controllers.
 
 ### `policy_server` — HTTP Inference Server (Python, `ament_python`)
 

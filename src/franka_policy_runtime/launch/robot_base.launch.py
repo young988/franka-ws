@@ -139,7 +139,7 @@ def launch_setup(context):
     )
 
     controllers_yaml = os.path.join(
-        get_package_share_directory("franka_policy_controller"),
+        get_package_share_directory("franka_policy_runtime"),
         "config",
         "franka_bringup_policy_controllers.yaml",
     )
