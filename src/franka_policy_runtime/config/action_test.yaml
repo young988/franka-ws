@@ -1,0 +1,42 @@
+action_test_runtime:
+  ros__parameters:
+    test_sequence:
+      - [0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      - [-0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, -0.02, 0.0, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, -0.02, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, -0.1, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, -0.1, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, 0.0, -0.1, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+      - [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0]
+    step_interval_sec: 2.0
+    tolerance_pos_m: 0.01
+    csv_output_path: ""
+    action_scale: 0.5
+    trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
+    command_frame: fr3_link0
+    tcp_frame: fr3_hand_tcp
+    move_group_name: fr3_arm
+    ik_service: /compute_ik
+    trajectory_duration_sec: 0.5
+    joint_state_topic: /joint_states
+    gripper_move_action: /franka_gripper/move
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+    gripper_initial_width: 0.04
+    gripper_speed: 0.05
+    gripper_deadband: 0.002
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7
