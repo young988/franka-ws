@@ -2,12 +2,12 @@
 import numpy as np
 import pytest
 
-from franka_policy_runtime.action_test_node import _DummyObserver, _action_dim_label
+from franka_policy_runtime.reference import DummyObserver, action_dim_label
 from franka_policy_runtime.observers.base import BackendObservation
 
 
 def test_dummy_observer_always_ready():
-    observer = _DummyObserver(joint_names=["fr3_joint1"])
+    observer = DummyObserver(joint_names=["fr3_joint1"])
     result = observer.observe()
     assert isinstance(result, BackendObservation)
     assert result.ready is True
@@ -15,14 +15,16 @@ def test_dummy_observer_always_ready():
 
 
 def test_dummy_observer_inherits_base_methods():
-    observer = _DummyObserver(joint_names=["fr3_joint1", "fr3_joint2"])
+    from types import SimpleNamespace
+
+    observer = DummyObserver(joint_names=["fr3_joint1", "fr3_joint2"])
     assert observer.latest_joint_positions() is None
 
-    from sensor_msgs.msg import JointState
-    msg = JointState()
-    msg.name = ["fr3_joint1", "fr3_joint2"]
-    msg.position = [0.1, 0.2]
-    msg.velocity = [0.0, 0.0]
+    msg = SimpleNamespace(
+        name=["fr3_joint1", "fr3_joint2"],
+        position=[0.1, 0.2],
+        velocity=[0.0, 0.0],
+    )
     observer.update_joint_state(msg)
     pos = observer.latest_joint_positions()
     assert pos is not None
@@ -49,10 +51,10 @@ def test_dummy_observer_inherits_base_methods():
         ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "zero"),
     ],
 )
-def test_action_dim_label(action, expected):
-    assert _action_dim_label(np.array(action, dtype=float)) == expected
+def testaction_dim_label(action, expected):
+    assert action_dim_label(np.array(action, dtype=float)) == expected
 
 
-def test_action_dim_label_multi_dim():
+def testaction_dim_label_multi_dim():
     action = np.array([0.01, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
-    assert _action_dim_label(action) == "+dx,+dy"
+    assert action_dim_label(action) == "+dx,+dy"

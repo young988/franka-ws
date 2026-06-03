@@ -183,3 +183,45 @@ def make_joint_trajectory(joint_names: list[str], positions: np.ndarray, duratio
     msg.joint_names = list(joint_names)
     msg.points.append(point)
     return msg
+
+
+# ---------------------------------------------------------------------------
+# Action dimension labelling (shared by runtime and test tooling)
+# ---------------------------------------------------------------------------
+
+_DIM_LABELS = ["dx", "dy", "dz", "rx", "ry", "rz", "gripper"]
+
+
+def action_dim_label(action: np.ndarray) -> str:
+    """Return a human-readable label for which dimensions are non-zero.
+
+    Examples: ``"+dx"``, ``"-ry"``, ``"gripper_open"``, ``"zero"``.
+    """
+    arr = np.asarray(action, dtype=float)
+    nonzero = [i for i in range(len(_DIM_LABELS)) if abs(float(arr[i])) > 1e-9]
+    if len(nonzero) == 0:
+        return "zero"
+    labels: list[str] = []
+    for idx in nonzero:
+        val = float(arr[idx])
+        name = _DIM_LABELS[idx]
+        if idx == 6:
+            labels.append("gripper_open" if val > 0.0 else "gripper_close")
+        else:
+            sign = "+" if val > 0.0 else "-"
+            labels.append(f"{sign}{name}")
+    return ",".join(labels)
+
+
+# ---------------------------------------------------------------------------
+# Dummy observer for testing (no sensor dependency)
+# ---------------------------------------------------------------------------
+
+from franka_policy_runtime.observers.base import BackendObservation, BaseObserver  # noqa: E402
+
+
+class DummyObserver(BaseObserver):
+    """Observer that always reports ready with an empty payload."""
+
+    def observe(self) -> BackendObservation:
+        return BackendObservation(ready=True, payload={})
