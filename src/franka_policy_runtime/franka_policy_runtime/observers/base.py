@@ -38,26 +38,6 @@ def camera_info_to_k(msg: Any) -> np.ndarray:
     return np.asarray(msg.k, dtype=np.float64).reshape(3, 3)
 
 
-def _depth_to_meters(depth: np.ndarray) -> np.ndarray:
-    depth = np.asarray(depth, dtype=np.float64)
-    if depth.size and np.nanmax(depth) > 10.0:
-        return depth / 1000.0
-    return depth
-
-
-def _quat_xyzw_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
-    x, y, z, w = np.asarray(quat_xyzw, dtype=np.float64)
-    norm = np.linalg.norm([x, y, z, w])
-    if norm == 0.0:
-        return np.eye(3, dtype=np.float64)
-    x, y, z, w = x / norm, y / norm, z / norm, w / norm
-    return np.array([
-        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
-        [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
-        [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
-    ], dtype=np.float64)
-
-
 def estimate_object_pose_in_eef(_observer: BaseObserver | None) -> np.ndarray | None:
     """Default obj2ee provider hook.
 

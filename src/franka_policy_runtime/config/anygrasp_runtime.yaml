@@ -1,0 +1,44 @@
+anygrasp_runtime:
+  ros__parameters:
+    policy_url: http://127.0.0.1:8000/act
+    image_topic: /eye_to_hand_camera/eye_to_hand_camera/color/image_raw
+    depth_topic: /eye_to_hand_camera/eye_to_hand_camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /eye_to_hand_camera/eye_to_hand_camera/color/camera_info
+    camera_frame: eye_to_hand_camera_color_optical_frame
+    color_order: rgb
+    depth_scale: 1000.0
+    joint_state_topic: /joint_states
+    trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
+    position_target_topic: ""
+    command_frame: fr3_link0
+    tcp_frame: fr3_hand_tcp
+    tcp_pose_source: franka_state
+    franka_state_topic: /franka_robot_state_broadcaster/robot_state
+    franka_state_ee_frame: fr3_hand_tcp
+    move_group_name: fr3_arm
+    ik_service: /compute_ik
+    control_period_sec: 0.1
+    trajectory_duration_sec: 2.0
+    approach_distance: 0.10
+    grasp_to_tcp_rotvec: [0.0, 1.5707963267948966, 0.0]
+    grasp_width_offset: 0.005
+    manual_target_selection: true
+    reselect_target_each_grasp: true
+    roi_window_name: AnyGrasp target selection
+    execute_grasp: false
+    repeat_grasps: false
+    repeat_delay_sec: 2.0
+    gripper_move_action: /franka_gripper/move
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+    gripper_initial_width: 0.04
+    gripper_speed: 0.05
+    gripper_deadband: 0.002
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7

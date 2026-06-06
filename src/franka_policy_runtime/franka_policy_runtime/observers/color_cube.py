@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 
-from franka_policy_runtime.observers.base import _depth_to_meters, _quat_xyzw_to_matrix, BaseObserver
+from franka_policy_runtime.observers.base import BaseObserver
+from franka_policy_runtime.utils.pose_math import _depth_to_meters, _quat_xyzw_to_matrix
 
 
 class ColorCubeObjectPoseProvider:

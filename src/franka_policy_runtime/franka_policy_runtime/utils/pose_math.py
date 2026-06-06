@@ -112,6 +112,28 @@ def compose_pose_xyzw(
     return position, quat
 
 
+def _quat_xyzw_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
+    """Convert quaternion (xyzw) to 3x3 rotation matrix."""
+    x, y, z, w = np.asarray(quat_xyzw, dtype=np.float64)
+    norm = np.linalg.norm([x, y, z, w])
+    if norm == 0.0:
+        return np.eye(3, dtype=np.float64)
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    return np.array([
+        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+        [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+        [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+    ], dtype=np.float64)
+
+
+def _depth_to_meters(depth: np.ndarray) -> np.ndarray:
+    """Convert depth array to meters (assumes mm if max > 10)."""
+    depth = np.asarray(depth, dtype=np.float64)
+    if depth.size and np.nanmax(depth) > 10.0:
+        return depth / 1000.0
+    return depth
+
+
 def _quat_xyzw_from_rpy(rpy: np.ndarray) -> np.ndarray:
     roll, pitch, yaw = rpy
     cr = math.cos(roll * 0.5)
