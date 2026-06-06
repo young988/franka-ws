@@ -26,16 +26,14 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from franka_policy_runtime.observers.base import BaseObserver
-from franka_policy_runtime.reference import (
+from franka_policy_runtime.utils.pose_math import (
+    FR3_JOINT_NAMES,
     apply_tcp_delta,
+    compose_pose_xyzw,
     gripper_width_from_binary_action,
     make_joint_trajectory,
-    split_policy_action,
-)
-from franka_policy_runtime.runtime_config import FR3_JOINT_NAMES
-from franka_policy_runtime.tcp_pose import (
-    compose_pose_xyzw,
     pose_msg_to_arrays,
+    split_policy_action,
     transform_msg_to_arrays,
 )
 

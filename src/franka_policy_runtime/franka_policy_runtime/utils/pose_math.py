@@ -1,13 +1,7 @@
-"""Reference conversion helpers for policy actions.
+"""Pose math utilities: quaternion operations, TCP deltas, trajectory helpers.
 
-Policy actions follow IsaacLab ``DifferentialInverseKinematicsAction``:
-``[dx, dy, dz, ax, ay, az, gripper]``.
-The first six values are relative TCP pose deltas.  The angular part is
-axis-angle, and both translation and rotation are scaled before application.
-The seventh value is binary gripper command: negative closes, non-negative opens.
-The arm controller consumes joint references, so runtime code must convert the
-first six dimensions through TF + IK before publishing to the controller.  The
-seventh dimension is handled separately through the Franka gripper action API.
+Combines former ``tcp_pose.py`` (TF/msg conversions, quaternion ops) and
+``motion_conversion.py`` (action deltas, trajectory building, gripper logic).
 """
 
 from __future__ import annotations
@@ -16,19 +10,106 @@ import math
 
 import numpy as np
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-def validate_action(action: np.ndarray) -> np.ndarray:
-    arr = np.asarray(action, dtype=np.float64)
-    if arr.shape != (7,):
-        raise ValueError(f"action must have shape (7,), got {arr.shape}")
-    if not np.all(np.isfinite(arr)):
-        raise ValueError("action must be finite")
-    return arr
+FR3_JOINT_NAMES = [
+    "fr3_joint1",
+    "fr3_joint2",
+    "fr3_joint3",
+    "fr3_joint4",
+    "fr3_joint5",
+    "fr3_joint6",
+    "fr3_joint7",
+]
+
+# ---------------------------------------------------------------------------
+# ROS message → numpy conversions
+# ---------------------------------------------------------------------------
 
 
-def split_policy_action(action: np.ndarray) -> tuple[np.ndarray, float]:
-    arr = validate_action(action)
-    return arr[:6].copy(), float(arr[6])
+def pose_msg_to_arrays(pose) -> tuple[np.ndarray, np.ndarray]:
+    return (
+        np.array([
+            pose.position.x,
+            pose.position.y,
+            pose.position.z,
+        ], dtype=float),
+        np.array([
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ], dtype=float),
+    )
+
+
+def transform_msg_to_arrays(transform) -> tuple[np.ndarray, np.ndarray]:
+    return (
+        np.array([
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+        ], dtype=float),
+        np.array([
+            transform.rotation.x,
+            transform.rotation.y,
+            transform.rotation.z,
+            transform.rotation.w,
+        ], dtype=float),
+    )
+
+# ---------------------------------------------------------------------------
+# Quaternion operations (xyzw order, ROS convention)
+# ---------------------------------------------------------------------------
+
+
+def _quat_multiply_raw_xyzw(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Multiply two quaternions (xyzw) without normalization."""
+    lx, ly, lz, lw = np.asarray(left, dtype=float)
+    rx, ry, rz, rw = np.asarray(right, dtype=float)
+    return np.array([
+        lw * rx + lx * rw + ly * rz - lz * ry,
+        lw * ry - lx * rz + ly * rw + lz * rx,
+        lw * rz + lx * ry - ly * rx + lz * rw,
+        lw * rw - lx * rx - ly * ry - lz * rz,
+    ], dtype=float)
+
+
+def _quat_multiply_xyzw(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Multiply two quaternions (xyzw) and normalize the result."""
+    quat = _quat_multiply_raw_xyzw(left, right)
+    return quat / np.linalg.norm(quat)
+
+
+def quat_multiply_xyzw(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Public alias for quaternion multiplication (xyzw, normalized)."""
+    return _quat_multiply_xyzw(left, right)
+
+
+def rotate_vector_xyzw(quat_xyzw: np.ndarray, vector: np.ndarray) -> np.ndarray:
+    """Rotate *vector* by the unit quaternion *quat_xyzw*."""
+    quat = np.asarray(quat_xyzw, dtype=float)
+    quat = quat / np.linalg.norm(quat)
+    vec_quat = np.array([vector[0], vector[1], vector[2], 0.0], dtype=float)
+    inv = np.array([-quat[0], -quat[1], -quat[2], quat[3]], dtype=float)
+    return _quat_multiply_raw_xyzw(_quat_multiply_raw_xyzw(quat, vec_quat), inv)[:3]
+
+
+def compose_pose_xyzw(
+    parent_position: np.ndarray,
+    parent_quat_xyzw: np.ndarray,
+    child_position: np.ndarray,
+    child_quat_xyzw: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    parent_position_arr = np.asarray(parent_position, dtype=float)
+    child_position_arr = np.asarray(child_position, dtype=float)
+    parent_quat = np.asarray(parent_quat_xyzw, dtype=float)
+    child_quat = np.asarray(child_quat_xyzw, dtype=float)
+    position = parent_position_arr + rotate_vector_xyzw(parent_quat, child_position_arr)
+    quat = _quat_multiply_xyzw(parent_quat, child_quat)
+    return position, quat
 
 
 def _quat_xyzw_from_rpy(rpy: np.ndarray) -> np.ndarray:
@@ -62,17 +143,23 @@ def _quat_xyzw_from_axis_angle(axis_angle: np.ndarray) -> np.ndarray:
         math.cos(half),
     ], dtype=np.float64)
 
+# ---------------------------------------------------------------------------
+# Policy action helpers
+# ---------------------------------------------------------------------------
 
-def _quat_multiply_xyzw(left: np.ndarray, right: np.ndarray) -> np.ndarray:
-    lx, ly, lz, lw = left
-    rx, ry, rz, rw = right
-    quat = np.array([
-        lw * rx + lx * rw + ly * rz - lz * ry,
-        lw * ry - lx * rz + ly * rw + lz * rx,
-        lw * rz + lx * ry - ly * rx + lz * rw,
-        lw * rw - lx * rx - ly * ry - lz * rz,
-    ], dtype=np.float64)
-    return quat / np.linalg.norm(quat)
+
+def validate_action(action: np.ndarray) -> np.ndarray:
+    arr = np.asarray(action, dtype=np.float64)
+    if arr.shape != (7,):
+        raise ValueError(f"action must have shape (7,), got {arr.shape}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("action must be finite")
+    return arr
+
+
+def split_policy_action(action: np.ndarray) -> tuple[np.ndarray, float]:
+    arr = validate_action(action)
+    return arr[:6].copy(), float(arr[6])
 
 
 def apply_tcp_delta(
@@ -225,3 +312,46 @@ class DummyObserver(BaseObserver):
 
     def observe(self) -> BackendObservation:
         return BackendObservation(ready=True, payload={})
+
+
+# ---------------------------------------------------------------------------
+# AnyGrasp helpers
+# ---------------------------------------------------------------------------
+
+
+def anygrasp_action_to_base_poses(
+    action: np.ndarray,
+    tcp_position: np.ndarray,
+    tcp_quat_xyzw: np.ndarray,
+    *,
+    approach_distance: float = 0.1,
+    grasp_to_tcp_rotvec: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """Decompose an AnyGrasp action into pregrasp, grasp, orientation, and width.
+
+    The action is ``[x, y, z, rx, ry, rz, width]`` where the first six
+    values are an absolute position + axis-angle rotation in the TCP frame,
+    and the last value is the requested gripper width.
+
+    Returns ``(pregrasp_pos, grasp_pos, quat_xyzw, gripper_width)``.
+    """
+    grasp_position = np.asarray(action[:3], dtype=np.float64) + np.asarray(tcp_position, dtype=np.float64)
+    gripper_width = float(action[6])
+
+    if grasp_to_tcp_rotvec is not None:
+        try:
+            import cv2
+            rot, _ = cv2.Rodrigues(np.asarray(grasp_to_tcp_rotvec, dtype=np.float64))
+        except ImportError:
+            rot = np.eye(3, dtype=np.float64)
+    else:
+        rot = np.eye(3, dtype=np.float64)
+
+    # Approach direction: grasp frame z-axis mapped to TCP frame
+    approach_dir = rot @ np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    pregrasp_position = grasp_position - approach_dir * approach_distance
+
+    # Return TCP orientation as-is; grasp_to_tcp_rotvec affects approach direction only
+    quat_xyzw = np.asarray(tcp_quat_xyzw, dtype=np.float64)
+
+    return pregrasp_position, grasp_position, quat_xyzw, gripper_width

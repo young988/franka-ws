@@ -9,6 +9,7 @@ from franka_policy_runtime.observers.base import (
     estimate_object_pose_in_eef,
     image_msg_to_array,
 )
+from franka_policy_runtime.observers.anygrasp import AnyGraspObserver
 from franka_policy_runtime.observers.bc_isaaclab import IsaacLabStackBCObserver
 from franka_policy_runtime.observers.color_cube import (
     ColorCubeObjectPoseProvider,
@@ -17,6 +18,7 @@ from franka_policy_runtime.observers.color_cube import (
 from franka_policy_runtime.observers.openvla import OpenVLAObserver
 
 __all__ = [
+    "AnyGraspObserver",
     "BackendObservation",
     "BaseObserver",
     "ObjectPoseProvider",

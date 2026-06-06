@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from franka_policy_runtime.tcp_pose import compose_pose_xyzw
+from franka_policy_runtime.utils.pose_math import compose_pose_xyzw
 
 
 def test_compose_pose_rotates_child_offset_into_parent_frame():

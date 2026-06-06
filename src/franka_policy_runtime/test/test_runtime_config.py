@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from franka_policy_runtime.runtime_config import FR3_JOINT_NAMES
-from franka_policy_runtime.reference import (
+from franka_policy_runtime.utils.pose_math import FR3_JOINT_NAMES
+from franka_policy_runtime.utils.pose_math import (
     _quat_xyzw_from_axis_angle,
     apply_tcp_delta,
     gripper_width_from_binary_action,

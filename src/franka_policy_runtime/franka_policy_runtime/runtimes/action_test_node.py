@@ -13,8 +13,9 @@ from pathlib import Path
 import numpy as np
 import rclpy
 
-from franka_policy_runtime.base_node import PolicyRuntimeBase, run_node
-from franka_policy_runtime.reference import (
+from franka_policy_runtime.runtimes.base_node import PolicyRuntimeBase, run_node
+from franka_policy_runtime.observers.base import BaseObserver
+from franka_policy_runtime.utils.pose_math import (
     DummyObserver,
     action_dim_label,
     apply_tcp_delta,

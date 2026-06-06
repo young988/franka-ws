@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from franka_policy_runtime.reference import DummyObserver, action_dim_label
+from franka_policy_runtime.utils.pose_math import DummyObserver, action_dim_label
 from franka_policy_runtime.observers.base import BackendObservation
 
 

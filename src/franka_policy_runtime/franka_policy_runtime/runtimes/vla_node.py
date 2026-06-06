@@ -1,6 +1,6 @@
 """VLA (OpenVLA) policy runtime node."""
 
-from franka_policy_runtime.base_node import PolicyRuntimeBase, run_node
+from franka_policy_runtime.runtimes.base_node import PolicyRuntimeBase, run_node
 from franka_policy_runtime.observers import OpenVLAObserver
 
 

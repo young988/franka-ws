@@ -1,9 +1,9 @@
 from pathlib import Path
 
 
-_BASE = Path(__file__).parents[1] / "franka_policy_runtime" / "base_node.py"
-_VLA = Path(__file__).parents[1] / "franka_policy_runtime" / "vla_node.py"
-_BC = Path(__file__).parents[1] / "franka_policy_runtime" / "bc_cube_stack_node.py"
+_BASE = Path(__file__).parents[1] / "franka_policy_runtime" / "runtimes" / "base_node.py"
+_VLA = Path(__file__).parents[1] / "franka_policy_runtime" / "runtimes" / "vla_node.py"
+_BC = Path(__file__).parents[1] / "franka_policy_runtime" / "runtimes" / "bc_cube_stack_node.py"
 
 
 def _read(*paths: Path) -> str:

@@ -23,10 +23,10 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "vla_policy_runtime = franka_policy_runtime.vla_node:main",
-            "bc_cube_stack_runtime = franka_policy_runtime.bc_cube_stack_node:main",
-            "action_test_node = franka_policy_runtime.action_test_node:main",
-            "action_test = franka_policy_runtime.action_test:main",
+            "vla_policy_runtime = franka_policy_runtime.runtimes.vla_node:main",
+            "bc_cube_stack_runtime = franka_policy_runtime.runtimes.bc_cube_stack_node:main",
+            "action_test = franka_policy_runtime.runtimes.action_test_node:main",
+            "anygrasp_runtime = franka_policy_runtime.runtimes.anygrasp_node:main",
         ],
     },
 )
