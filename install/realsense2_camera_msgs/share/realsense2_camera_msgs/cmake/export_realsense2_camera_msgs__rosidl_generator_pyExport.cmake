@@ -54,7 +54,7 @@ endif()
 add_library(realsense2_camera_msgs::realsense2_camera_msgs__rosidl_generator_py SHARED IMPORTED)
 
 set_target_properties(realsense2_camera_msgs::realsense2_camera_msgs__rosidl_generator_py PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES "/home/young/miniconda3/lib/python3.10/site-packages/numpy/_core/include"
+  INTERFACE_INCLUDE_DIRECTORIES "/home/young/miniconda3/lib/python3.10/site-packages/numpy/core/include"
   INTERFACE_LINK_LIBRARIES "realsense2_camera_msgs::realsense2_camera_msgs__rosidl_generator_c;/home/young/miniconda3/lib/libpython3.10.so;realsense2_camera_msgs::realsense2_camera_msgs__rosidl_typesupport_c;builtin_interfaces::builtin_interfaces__rosidl_generator_py;std_msgs::std_msgs__rosidl_generator_py;sensor_msgs::sensor_msgs__rosidl_generator_py;geometry_msgs::geometry_msgs__rosidl_generator_py;action_msgs::action_msgs__rosidl_generator_py;unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_py"
 )
 

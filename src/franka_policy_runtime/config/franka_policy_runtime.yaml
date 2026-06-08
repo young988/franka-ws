@@ -13,16 +13,15 @@ franka_policy_runtime:
     object_camera_frame: eye_to_hand_camera_color_optical_frame
     object_min_pixels: 30
     joint_state_topic: /joint_states
-    trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
+    trajectory_action: /fr3_arm_controller/follow_joint_trajectory
     command_frame: fr3_link0
     tcp_frame: fr3_hand_tcp
-    tcp_pose_source: franka_state
-    franka_state_topic: /franka_robot_state_broadcaster/robot_state
-    franka_state_ee_frame: fr3_hand_tcp
+    tcp_pose_source: tf
     move_group_name: fr3_arm
     ik_service: /compute_ik
-    control_period_sec: 0.05
-    trajectory_duration_sec: 0.5
+    control_retry_sec: 0.5
+    trajectory_duration_sec: 2.0
+    max_joint_delta_rad: 0.25
     action_scale: 0.5
     gripper_move_action: /franka_gripper/move
     gripper_min_width: 0.0

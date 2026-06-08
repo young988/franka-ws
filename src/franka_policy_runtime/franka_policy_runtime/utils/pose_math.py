@@ -112,6 +112,17 @@ def compose_pose_xyzw(
     return position, quat
 
 
+def invert_pose_xyzw(
+    position: np.ndarray,
+    quat_xyzw: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    quat = np.asarray(quat_xyzw, dtype=float)
+    quat = quat / np.linalg.norm(quat)
+    inverse_quat = np.array([-quat[0], -quat[1], -quat[2], quat[3]], dtype=float)
+    inverse_position = -rotate_vector_xyzw(inverse_quat, np.asarray(position, dtype=float))
+    return inverse_position, inverse_quat
+
+
 def _quat_xyzw_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
     """Convert quaternion (xyzw) to 3x3 rotation matrix."""
     x, y, z, w = np.asarray(quat_xyzw, dtype=np.float64)
@@ -276,20 +287,44 @@ def gripper_width_from_binary_action(action_value: float, *, min_width: float, m
     return float(min_width if float(action_value) < 0.0 else max_width)
 
 
-def make_joint_trajectory(joint_names: list[str], positions: np.ndarray, duration_sec: float):
+def make_joint_trajectory(
+    joint_names: list[str],
+    positions: np.ndarray,
+    duration_sec: float,
+    *,
+    start_positions: np.ndarray | None = None,
+    start_delay_sec: float = 0.1,
+):
     from builtin_interfaces.msg import Duration
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
+    target_positions = np.asarray(positions, dtype=float).tolist()
+    zeros = [0.0] * len(target_positions)
+    msg = JointTrajectory()
+    msg.joint_names = list(joint_names)
+
+    if start_positions is not None:
+        start = JointTrajectoryPoint()
+        start.positions = np.asarray(start_positions, dtype=float).tolist()
+        start.velocities = zeros.copy()
+        start.accelerations = zeros.copy()
+        start_sec = int(start_delay_sec)
+        start.time_from_start = Duration(
+            sec=start_sec,
+            nanosec=int((start_delay_sec - start_sec) * 1_000_000_000),
+        )
+        msg.points.append(start)
+
     point = JointTrajectoryPoint()
-    point.positions = np.asarray(positions, dtype=float).tolist()
+    point.positions = target_positions
+    point.velocities = zeros.copy()
+    point.accelerations = zeros.copy()
     sec = int(duration_sec)
     point.time_from_start = Duration(
         sec=sec,
         nanosec=int((duration_sec - sec) * 1_000_000_000),
     )
 
-    msg = JointTrajectory()
-    msg.joint_names = list(joint_names)
     msg.points.append(point)
     return msg
 

@@ -20,10 +20,12 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Pyth
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-SAMPLE_ROOT = '/home/young/ros2_ws/src/handeye_calibration/samples'
-
 
 def generate_launch_description():
+    default_sample_root = PathJoinSubstitution([
+        FindPackageShare('handeye_calibration'),
+        'samples'])
+
     arg_robot_ip = DeclareLaunchArgument(
         'robot_ip', default_value='172.16.0.2',
         description='Franka robot IP / hostname')
@@ -42,6 +44,10 @@ def generate_launch_description():
     arg_headless = DeclareLaunchArgument(
         'headless', default_value='false',
         description='Run without OpenCV display window')
+    arg_sample_root = DeclareLaunchArgument(
+        'sample_root',
+        default_value=default_sample_root,
+        description='Root directory for calibration samples')
 
     franka_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -108,7 +114,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'sample_dir': PathJoinSubstitution([
-                SAMPLE_ROOT,
+                LaunchConfiguration('sample_root'),
                 LaunchConfiguration('calibration_setup'),
                 LaunchConfiguration('board_type')]),
             'image_topic': '/camera/camera/color/image_raw',
@@ -129,6 +135,7 @@ def generate_launch_description():
         arg_board_type,
         arg_calibration_setup,
         arg_headless,
+        arg_sample_root,
         franka_launch,
         controller_spawner,
         GroupAction(

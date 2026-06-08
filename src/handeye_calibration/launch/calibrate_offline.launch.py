@@ -5,17 +5,23 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-
-SAMPLE_ROOT = '/home/young/ros2_ws/src/handeye_calibration/samples'
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    default_sample_root = PathJoinSubstitution([
+        FindPackageShare('handeye_calibration'),
+        'samples'])
     sample_dir = PathJoinSubstitution([
-        SAMPLE_ROOT,
+        LaunchConfiguration('sample_root'),
         LaunchConfiguration('calibration_setup'),
         LaunchConfiguration('board_type')])
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'sample_root',
+            default_value=default_sample_root,
+            description='Root directory for calibration samples'),
         DeclareLaunchArgument(
             'board_type', default_value='chessboard',
             description='single_aruco, charuco, aruco_grid, or chessboard'),

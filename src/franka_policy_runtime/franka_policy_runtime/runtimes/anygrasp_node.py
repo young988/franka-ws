@@ -61,6 +61,7 @@ class AnyGraspRuntime(PolicyRuntimeBase):
                 return
             elapsed = time.monotonic() - self._completed_at
             if elapsed < float(self.get_parameter("repeat_delay_sec").value):
+                self._schedule_control(float(self.get_parameter("repeat_delay_sec").value) - elapsed)
                 return
             if bool(self.get_parameter("reselect_target_each_grasp").value):
                 self._observer.clear_target_bbox()
@@ -73,6 +74,7 @@ class AnyGraspRuntime(PolicyRuntimeBase):
             observation = self._observer.observe()
             if not observation.ready:
                 self._goal_active = False
+                self._schedule_control()
                 return
             if (bool(self.get_parameter("manual_target_selection").value)
                 and self._observer.target_bbox() is None):
@@ -83,6 +85,7 @@ class AnyGraspRuntime(PolicyRuntimeBase):
                 observation = self._observer.observe()
             if self._observer.latest_joint_positions() is None:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             try:
@@ -91,12 +94,14 @@ class AnyGraspRuntime(PolicyRuntimeBase):
                 self._prepare_grasp(action)
             except Exception as exc:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             if not bool(self.get_parameter("execute_grasp").value):
                 self._goal_active = False
                 self._phase = "done"
                 self._completed_at = time.monotonic()
+                self._schedule_control(float(self.get_parameter("repeat_delay_sec").value))
                 return
 
             open_width = float(self.get_parameter("gripper_max_width").value)
@@ -145,10 +150,12 @@ class AnyGraspRuntime(PolicyRuntimeBase):
         current_joints = self._observer.latest_joint_positions()
         if current_joints is None:
             self._goal_active = False
+            self._schedule_control()
             return
         target_joints = self._compute_ik(current_joints, self._pregrasp_position, self._grasp_quat)
         if target_joints is None:
             self._goal_active = False
+            self._schedule_control()
             return
         self._phase = "approaching"
         self._move_to_pose(target_joints, self._on_pregrasp_reached)
@@ -157,10 +164,12 @@ class AnyGraspRuntime(PolicyRuntimeBase):
         current_joints = self._observer.latest_joint_positions()
         if current_joints is None:
             self._goal_active = False
+            self._schedule_control()
             return
         target_joints = self._compute_ik(current_joints, self._grasp_position, self._grasp_quat)
         if target_joints is None:
             self._goal_active = False
+            self._schedule_control()
             return
         self._phase = "grasping"
         self._move_to_pose(target_joints, self._on_grasp_reached)
@@ -177,12 +186,16 @@ class AnyGraspRuntime(PolicyRuntimeBase):
         self._phase = "done"
         self._completed_at = time.monotonic()
         self._goal_active = False
+        if bool(self.get_parameter("repeat_grasps").value):
+            self._schedule_control(float(self.get_parameter("repeat_delay_sec").value))
 
     def _move_to_pose(self, joint_positions, callback) -> None:
         from control_msgs.action import FollowJointTrajectory
+        current_joints = self._observer.latest_joint_positions()
         msg = make_joint_trajectory(
             self._joint_names, joint_positions,
             float(self.get_parameter("trajectory_duration_sec").value),
+            start_positions=current_joints,
         )
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = msg

@@ -22,10 +22,12 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Pyth
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-SAMPLE_ROOT = '/home/young/ros2_ws/src/handeye_calibration/samples'
-
 
 def generate_launch_description():
+    default_sample_root = PathJoinSubstitution([
+        FindPackageShare('handeye_calibration'),
+        'samples'])
+
     arg_robot_ip = DeclareLaunchArgument(
         'robot_ip', default_value='172.16.0.2',
         description='Franka robot IP / hostname')
@@ -89,9 +91,13 @@ def generate_launch_description():
         'gripper_grasp_action',
         default_value='/franka_gripper/grasp',
         description='Franka gripper Grasp action')
+    arg_sample_root = DeclareLaunchArgument(
+        'sample_root',
+        default_value=default_sample_root,
+        description='Root directory for calibration samples')
 
     experiment_dir = PathJoinSubstitution([
-        SAMPLE_ROOT,
+        LaunchConfiguration('sample_root'),
         LaunchConfiguration('calibration_setup'),
         LaunchConfiguration('board_type')])
 
@@ -223,6 +229,7 @@ def generate_launch_description():
         arg_trajectory_action,
         arg_gripper_move_action,
         arg_gripper_grasp_action,
+        arg_sample_root,
         moveit_launch,
         GroupAction(
             actions=[realsense_hand],

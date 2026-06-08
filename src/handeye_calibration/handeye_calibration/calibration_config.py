@@ -3,7 +3,25 @@ from dataclasses import dataclass
 import os
 import numpy as np
 
-DEFAULT_SAMPLE_ROOT = '/home/young/ros2_ws/src/handeye_calibration/samples'
+try:
+    from ament_index_python.packages import get_package_share_directory
+except ImportError:  # pragma: no cover - only used outside ROS environments
+    get_package_share_directory = None
+
+
+def default_sample_root():
+    if get_package_share_directory is not None:
+        try:
+            return os.path.join(
+                get_package_share_directory('handeye_calibration'),
+                'samples')
+        except Exception:
+            pass
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(package_dir, 'samples')
+
+
+DEFAULT_SAMPLE_ROOT = default_sample_root()
 DEFAULT_SAMPLE_DIR = DEFAULT_SAMPLE_ROOT
 
 BOARD_PRESETS = {

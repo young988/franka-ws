@@ -22,6 +22,7 @@
   <depend>franka_msgs</depend>
   <depend>launch</depend>
   <depend>launch_ros</depend>
+  <depend>ament_index_python</depend>
   <depend>python3-numpy</depend>
   <depend>python3-opencv</depend>
   <depend>python3-scipy</depend>

@@ -13,7 +13,6 @@ import numpy as np
 import rclpy
 from control_msgs.action import FollowJointTrajectory
 from franka_msgs.action import Move
-from franka_msgs.msg import FrankaRobotState
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.msg import MoveItErrorCodes, RobotState
 from moveit_msgs.srv import GetPositionIK
@@ -31,6 +30,7 @@ from franka_policy_runtime.utils.pose_math import (
     apply_tcp_delta,
     compose_pose_xyzw,
     gripper_width_from_binary_action,
+    invert_pose_xyzw,
     make_joint_trajectory,
     pose_msg_to_arrays,
     split_policy_action,
@@ -54,16 +54,19 @@ class PolicyRuntimeBase(Node):
         self.declare_parameter("camera_info_topic", "")
         self.declare_parameter("joint_state_topic", "/joint_states")
         self.declare_parameter("instruction_topic", "~/instruction")
-        self.declare_parameter("trajectory_action", "/joint_trajectory_controller/follow_joint_trajectory")
+        self.declare_parameter("trajectory_action", "/fr3_arm_controller/follow_joint_trajectory")
         self.declare_parameter("command_frame", "fr3_link0")
         self.declare_parameter("tcp_frame", "fr3_hand_tcp")
-        self.declare_parameter("tcp_pose_source", "franka_state")
-        self.declare_parameter("franka_state_topic", "/franka_robot_state_broadcaster/robot_state")
-        self.declare_parameter("franka_state_ee_frame", "fr3_hand_tcp")
+        self.declare_parameter("tcp_pose_source", "tf")
+        self.declare_parameter("current_pose_topic", "/franka_robot_state_broadcaster/current_pose")
         self.declare_parameter("move_group_name", "fr3_arm")
+        self.declare_parameter("ik_link_name", "")
         self.declare_parameter("ik_service", "/compute_ik")
-        self.declare_parameter("control_period_sec", 0.05)
+        self.declare_parameter("ik_request_timeout_sec", 1.0)
+        self.declare_parameter("avoid_collisions", False)
+        self.declare_parameter("control_retry_sec", 0.5)
         self.declare_parameter("trajectory_duration_sec", 0.5)
+        self.declare_parameter("max_joint_delta_rad", 0.25)
         self.declare_parameter("action_scale", 0.5)
         self.declare_parameter("gripper_move_action", "/franka_gripper/move")
         self.declare_parameter("gripper_min_width", 0.0)
@@ -76,7 +79,8 @@ class PolicyRuntimeBase(Node):
         self._declare_parameters()
 
         self._joint_names: list[str] = list(self.get_parameter("joint_names").value)
-        self._latest_franka_state_pose: tuple[np.ndarray, np.ndarray] | None = None
+        self._latest_current_pose: PoseStamped | None = None
+        self._latest_current_pose_received_ns: int | None = None
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._observer: BaseObserver = self._create_observer()
@@ -102,13 +106,10 @@ class PolicyRuntimeBase(Node):
         )
         self._goal_active = False
         self._active_goal_handle = None
+        self._control_timer = None
 
         self._create_subscriptions()
-        self.create_timer(
-            float(self.get_parameter("control_period_sec").value),
-            self._control_tick,
-            callback_group=self._control_callback_group,
-        )
+        self._schedule_control(0.0)
 
         # ---- timing accumulator ----
         self._timings: dict[str, list[float]] = {
@@ -174,9 +175,9 @@ class PolicyRuntimeBase(Node):
             10,
         )
         self.create_subscription(
-            FrankaRobotState,
-            str(self.get_parameter("franka_state_topic").value),
-            self._franka_state_cb,
+            PoseStamped,
+            str(self.get_parameter("current_pose_topic").value),
+            self._current_pose_cb,
             10,
         )
         self.create_subscription(
@@ -202,8 +203,9 @@ class PolicyRuntimeBase(Node):
     def _joint_state_cb(self, msg: JointState) -> None:
         self._observer.update_joint_state(msg)
 
-    def _franka_state_cb(self, msg: FrankaRobotState) -> None:
-        self._latest_franka_state_pose = pose_msg_to_arrays(msg.o_t_ee.pose)
+    def _current_pose_cb(self, msg: PoseStamped) -> None:
+        self._latest_current_pose = msg
+        self._latest_current_pose_received_ns = self.get_clock().now().nanoseconds
 
     def _instruction_cb(self, msg: String) -> None:
         if hasattr(self._observer, "update_instruction"):
@@ -293,6 +295,27 @@ class PolicyRuntimeBase(Node):
     # Control
     # ------------------------------------------------------------------
 
+    def _retry_delay_sec(self) -> float:
+        return max(0.01, float(self.get_parameter("control_retry_sec").value))
+
+    def _schedule_control(self, delay_sec: float | None = None) -> None:
+        if delay_sec is None:
+            delay_sec = self._retry_delay_sec()
+        if self._control_timer is not None:
+            self._control_timer.cancel()
+
+        def _timer_cb() -> None:
+            if self._control_timer is not None:
+                self._control_timer.cancel()
+                self._control_timer = None
+            self._control_tick()
+
+        self._control_timer = self.create_timer(
+            max(0.001, float(delay_sec)),
+            _timer_cb,
+            callback_group=self._control_callback_group,
+        )
+
     def _control_tick(self) -> None:
         """Observe → request → IK → send goal → (result cb chains)."""
         if self._goal_active:
@@ -304,6 +327,7 @@ class PolicyRuntimeBase(Node):
             observation = self._observer.observe()
             if not observation.ready:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             try:
@@ -312,6 +336,7 @@ class PolicyRuntimeBase(Node):
                 self.get_logger().warn(
                     f"policy request failed: {exc}", throttle_duration_sec=2.0)
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             action = actions[0]
@@ -321,6 +346,7 @@ class PolicyRuntimeBase(Node):
             tcp_pose = self._update_observer_tcp_pose()
             if tcp_pose is None:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             current_position, current_quat = tcp_pose
@@ -333,14 +359,18 @@ class PolicyRuntimeBase(Node):
             current_joints = self._observer.latest_joint_positions()
             if current_joints is None:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             target_joints = self._compute_ik(current_joints, target_position, target_quat)
             if target_joints is None:
                 self._goal_active = False
+                self._schedule_control()
                 return
 
             self._send_trajectory_goal(target_joints)
+            if not self._goal_active:
+                self._schedule_control()
         except Exception:
             self._goal_active = False
             raise
@@ -352,11 +382,13 @@ class PolicyRuntimeBase(Node):
             self.get_logger().warn(f"Trajectory goal failed: {exc}")
             self._goal_active = False
             self._active_goal_handle = None
+            self._schedule_control()
             return
         if not goal_handle.accepted:
             self.get_logger().warn("Trajectory goal rejected")
             self._goal_active = False
             self._active_goal_handle = None
+            self._schedule_control()
             return
         self._active_goal_handle = goal_handle
         goal_handle.get_result_async().add_done_callback(self._trajectory_result_cb)
@@ -364,20 +396,41 @@ class PolicyRuntimeBase(Node):
     def _trajectory_result_cb(self, future):
         self._goal_active = False
         self._active_goal_handle = None
-        self._control_tick()
+        self._schedule_control(0.0)
 
     # ---- shared helpers ------------------------------------------------
 
     def _send_trajectory_goal(self, joint_positions: np.ndarray) -> None:
         """Send a one-point trajectory goal, preempting any in-flight goal."""
+        current_joints = self._observer.latest_joint_positions()
+        if current_joints is not None:
+            delta = np.asarray(joint_positions, dtype=float) - np.asarray(current_joints, dtype=float)
+            max_delta = float(np.max(np.abs(delta)))
+            limit = float(self.get_parameter("max_joint_delta_rad").value)
+            if max_delta > limit:
+                self.get_logger().error(
+                    "Refusing trajectory goal: IK joint jump exceeds limit "
+                    f"max_delta={max_delta:.4f} rad limit={limit:.4f} rad "
+                    f"delta={np.array2string(delta, precision=4, suppress_small=True)}"
+                )
+                self._goal_active = False
+                self._active_goal_handle = None
+                return
+            self.get_logger().info(
+                "Sending trajectory goal: "
+                f"max_joint_delta={max_delta:.4f} rad "
+                f"duration={float(self.get_parameter('trajectory_duration_sec').value):.3f}s",
+                throttle_duration_sec=1.0,
+            )
         if self._active_goal_handle is not None:
-            self._active_goal_handle.cancel_async()
+            self._active_goal_handle.cancel_goal_async()
             self._active_goal_handle = None
             self._goal_active = False
 
         msg = make_joint_trajectory(
             self._joint_names, joint_positions,
             float(self.get_parameter("trajectory_duration_sec").value),
+            start_positions=current_joints,
         )
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = msg
@@ -399,41 +452,45 @@ class PolicyRuntimeBase(Node):
 
     def _current_tcp_pose(self) -> tuple[np.ndarray, np.ndarray] | None:
         source = str(self.get_parameter("tcp_pose_source").value).lower()
-        if source == "tf":
+        if source in {"current_pose", "franka_current_pose", "franka_state_broadcaster"}:
+            pose = self._tcp_pose_from_current_pose_topic()
+            if pose is not None:
+                return pose
+            self.get_logger().warn(
+                "Franka current_pose is not available; falling back to TF",
+                throttle_duration_sec=2.0,
+            )
             return self._lookup_tcp_pose_from_tf()
-        if source != "franka_state":
+        if source != "tf":
             self.get_logger().warn(
                 f"unknown tcp_pose_source={source!r}; falling back to TF",
                 throttle_duration_sec=2.0,
             )
-            return self._lookup_tcp_pose_from_tf()
-        pose = self._tcp_pose_from_franka_state()
-        if pose is not None:
-            return pose
-        self.get_logger().warn(
-            "Franka robot state TCP pose is not available; falling back to TF",
-            throttle_duration_sec=2.0,
-        )
         return self._lookup_tcp_pose_from_tf()
 
-    def _tcp_pose_from_franka_state(self) -> tuple[np.ndarray, np.ndarray] | None:
-        if self._latest_franka_state_pose is None:
+    def _tcp_pose_from_current_pose_topic(self) -> tuple[np.ndarray, np.ndarray] | None:
+        if self._latest_current_pose is None:
             return None
-        ee_position, ee_quat = self._latest_franka_state_pose
-        ee_frame = str(self.get_parameter("franka_state_ee_frame").value)
-        tcp_frame = str(self.get_parameter("tcp_frame").value)
-        if ee_frame == tcp_frame:
-            return ee_position.copy(), ee_quat.copy()
+        command_frame = str(self.get_parameter("command_frame").value)
+        frame_id = self._latest_current_pose.header.frame_id
+        position, quat = pose_msg_to_arrays(self._latest_current_pose.pose)
+        if not frame_id or frame_id == command_frame:
+            return position, quat
+
         try:
-            transform = self._tf_buffer.lookup_transform(ee_frame, tcp_frame, rclpy.time.Time())
+            transform = self._tf_buffer.lookup_transform(
+                command_frame,
+                frame_id,
+                rclpy.time.Time(),
+            )
         except TransformException as exc:
             self.get_logger().warn(
-                f"TF lookup {ee_frame}->{tcp_frame} for Franka state TCP offset failed: {exc}",
+                f"TF lookup {command_frame}->{frame_id} for current_pose failed: {exc}",
                 throttle_duration_sec=2.0,
             )
             return None
-        ee_to_tcp_position, ee_to_tcp_quat = transform_msg_to_arrays(transform.transform)
-        return compose_pose_xyzw(ee_position, ee_quat, ee_to_tcp_position, ee_to_tcp_quat)
+        frame_position, frame_quat = transform_msg_to_arrays(transform.transform)
+        return compose_pose_xyzw(frame_position, frame_quat, position, quat)
 
     def _lookup_tcp_pose_from_tf(self) -> tuple[np.ndarray, np.ndarray] | None:
         base_frame = str(self.get_parameter("command_frame").value)
@@ -449,22 +506,37 @@ class PolicyRuntimeBase(Node):
     def _compute_ik(
         self,
         current_joints: np.ndarray,
-        target_position: np.ndarray,
-        target_quat_xyzw: np.ndarray,
+        target_tcp_position: np.ndarray,
+        target_tcp_quat_xyzw: np.ndarray,
     ) -> np.ndarray | None:
         if not self._ik_client.wait_for_service(timeout_sec=0.1):
             self.get_logger().warn("MoveIt IK service is not available", throttle_duration_sec=2.0)
             return None
 
         request = GetPositionIK.Request()
-        request.ik_request.group_name = str(self.get_parameter("move_group_name").value)
-        request.ik_request.ik_link_name = str(self.get_parameter("tcp_frame").value)
-        request.ik_request.avoid_collisions = True
+        group_name = str(self.get_parameter("move_group_name").value)
+        command_frame = str(self.get_parameter("command_frame").value)
+        ik_link_name = str(self.get_parameter("ik_link_name").value).strip()
+        if not ik_link_name:
+            ik_link_name = str(self.get_parameter("tcp_frame").value)
+        avoid_collisions = bool(self.get_parameter("avoid_collisions").value)
+        timeout_sec = max(0.01, float(self.get_parameter("ik_request_timeout_sec").value))
+        target_position, target_quat_xyzw = self._target_pose_for_ik_link(
+            target_tcp_position,
+            target_tcp_quat_xyzw,
+            ik_link_name,
+        )
+        if target_position is None or target_quat_xyzw is None:
+            return None
+
+        request.ik_request.group_name = group_name
+        request.ik_request.ik_link_name = ik_link_name
+        request.ik_request.avoid_collisions = avoid_collisions
         request.ik_request.robot_state = RobotState()
         request.ik_request.robot_state.joint_state.name = self._joint_names
         request.ik_request.robot_state.joint_state.position = np.asarray(current_joints, dtype=float).tolist()
         request.ik_request.pose_stamped = PoseStamped()
-        request.ik_request.pose_stamped.header.frame_id = str(self.get_parameter("command_frame").value)
+        request.ik_request.pose_stamped.header.frame_id = command_frame
         request.ik_request.pose_stamped.header.stamp = self.get_clock().now().to_msg()
         request.ik_request.pose_stamped.pose.position.x = float(target_position[0])
         request.ik_request.pose_stamped.pose.position.y = float(target_position[1])
@@ -473,19 +545,33 @@ class PolicyRuntimeBase(Node):
         request.ik_request.pose_stamped.pose.orientation.y = float(target_quat_xyzw[1])
         request.ik_request.pose_stamped.pose.orientation.z = float(target_quat_xyzw[2])
         request.ik_request.pose_stamped.pose.orientation.w = float(target_quat_xyzw[3])
-        request.ik_request.timeout.sec = 0
-        request.ik_request.timeout.nanosec = 500_000_000  # 0.5 s for MoveIt collision IK
+        request.ik_request.timeout.sec = int(timeout_sec)
+        request.ik_request.timeout.nanosec = int((timeout_sec - int(timeout_sec)) * 1_000_000_000)
+
+        self.get_logger().info(
+            "IK request: "
+            f"group={group_name} link={ik_link_name} frame={command_frame} "
+            f"avoid_collisions={avoid_collisions} timeout={timeout_sec:.3f}s "
+            f"target_pos=[{target_position[0]:.4f}, {target_position[1]:.4f}, {target_position[2]:.4f}] "
+            f"target_quat_xyzw=[{target_quat_xyzw[0]:.4f}, {target_quat_xyzw[1]:.4f}, "
+            f"{target_quat_xyzw[2]:.4f}, {target_quat_xyzw[3]:.4f}]"
+        )
 
         future = self._ik_client.call_async(request)
-        deadline = time.time() + 2.0
+        deadline = time.time() + timeout_sec + 1.0
         while not future.done() and time.time() < deadline:
             time.sleep(0.01)
         if not future.done() or future.result() is None:
-            self.get_logger().warn("MoveIt IK request timed out", throttle_duration_sec=2.0)
+            self.get_logger().warn(
+                f"MoveIt IK request timed out after {timeout_sec + 1.0:.3f}s"
+            )
             return None
         response = future.result()
         if response.error_code.val != MoveItErrorCodes.SUCCESS:
-            self.get_logger().warn(f"MoveIt IK failed with code {response.error_code.val}", throttle_duration_sec=2.0)
+            self.get_logger().warn(
+                f"MoveIt IK failed with code {response.error_code.val} "
+                f"(group={group_name}, link={ik_link_name}, frame={command_frame})"
+            )
             return None
 
         by_name = dict(zip(response.solution.joint_state.name, response.solution.joint_state.position))
@@ -493,6 +579,49 @@ class PolicyRuntimeBase(Node):
             self.get_logger().warn("MoveIt IK response did not contain all FR3 joints", throttle_duration_sec=2.0)
             return None
         return np.array([by_name[name] for name in self._joint_names], dtype=float)
+
+    def _target_pose_for_ik_link(
+        self,
+        target_tcp_position: np.ndarray,
+        target_tcp_quat_xyzw: np.ndarray,
+        ik_link_name: str,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        tcp_frame = str(self.get_parameter("tcp_frame").value)
+        if ik_link_name == tcp_frame:
+            return target_tcp_position, target_tcp_quat_xyzw
+
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                ik_link_name,
+                tcp_frame,
+                rclpy.time.Time(),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(
+                f"TF lookup {ik_link_name}->{tcp_frame} for IK target offset failed: {exc}",
+                throttle_duration_sec=2.0,
+            )
+            return None, None
+
+        ik_to_tcp_position, ik_to_tcp_quat = transform_msg_to_arrays(transform.transform)
+        tcp_to_ik_position, tcp_to_ik_quat = invert_pose_xyzw(
+            ik_to_tcp_position,
+            ik_to_tcp_quat,
+        )
+        target_ik_position, target_ik_quat = compose_pose_xyzw(
+            target_tcp_position,
+            target_tcp_quat_xyzw,
+            tcp_to_ik_position,
+            tcp_to_ik_quat,
+        )
+        self.get_logger().info(
+            "Converted TCP target for IK link: "
+            f"tcp_frame={tcp_frame} ik_link={ik_link_name} "
+            f"target_tcp_pos=[{target_tcp_position[0]:.4f}, {target_tcp_position[1]:.4f}, {target_tcp_position[2]:.4f}] "
+            f"target_ik_pos=[{target_ik_position[0]:.4f}, {target_ik_position[1]:.4f}, {target_ik_position[2]:.4f}]",
+            throttle_duration_sec=1.0,
+        )
+        return target_ik_position, target_ik_quat
 
     # ------------------------------------------------------------------
     # Timing

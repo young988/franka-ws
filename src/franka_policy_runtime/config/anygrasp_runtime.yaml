@@ -8,17 +8,16 @@ anygrasp_runtime:
     color_order: rgb
     depth_scale: 1000.0
     joint_state_topic: /joint_states
-    trajectory_action: /joint_trajectory_controller/follow_joint_trajectory
+    trajectory_action: /fr3_arm_controller/follow_joint_trajectory
     position_target_topic: ""
     command_frame: fr3_link0
     tcp_frame: fr3_hand_tcp
-    tcp_pose_source: franka_state
-    franka_state_topic: /franka_robot_state_broadcaster/robot_state
-    franka_state_ee_frame: fr3_hand_tcp
+    tcp_pose_source: tf
     move_group_name: fr3_arm
     ik_service: /compute_ik
-    control_period_sec: 0.1
+    control_retry_sec: 0.5
     trajectory_duration_sec: 2.0
+    max_joint_delta_rad: 0.25
     approach_distance: 0.10
     grasp_to_tcp_rotvec: [0.0, 1.5707963267948966, 0.0]
     grasp_width_offset: 0.005

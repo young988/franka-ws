@@ -1,7 +1,7 @@
 """Launch the robot base stack (no policy, no sensors, no RViz).
 
 This launch owns the minimal graph needed to control the FR3 arm:
-robot_state_publisher, ros2_control with joint_trajectory_controller, MoveIt
+robot_state_publisher, ros2_control with fr3_arm_controller, MoveIt
 move_group for IK, Franka gripper, joint state aggregation.
 
 Design: other launches (bc_cube_stack, vla_policy) include this via
@@ -67,6 +67,7 @@ def launch_setup(context):
     namespace = LaunchConfiguration("namespace")
     robot_ip = LaunchConfiguration("robot_ip")
     load_gripper = LaunchConfiguration("load_gripper")
+    kinematics_solver_timeout = LaunchConfiguration("kinematics_solver_timeout")
 
     franka_xacro_file = os.path.join(
         get_package_share_directory("franka_description"),
@@ -104,6 +105,10 @@ def launch_setup(context):
     }
 
     kinematics_yaml = load_yaml("franka_fr3_moveit_config", "config/kinematics.yaml")
+    if "fr3_arm" in kinematics_yaml:
+        kinematics_yaml["fr3_arm"]["kinematics_solver_timeout"] = float(
+            kinematics_solver_timeout.perform(context)
+        )
     planning_config = fr3_ompl_config()
     planning_scene_monitor_parameters = {
         "publish_planning_scene": True,
@@ -144,8 +149,8 @@ def launch_setup(context):
         executable="ros2_control_node",
         namespace=namespace,
         parameters=[
-            controllers_yaml,
             robot_description,
+            controllers_yaml,
         ],
         remappings=[("joint_states", "franka/joint_states")],
         output={"stdout": "screen", "stderr": "screen"},
@@ -167,7 +172,7 @@ def launch_setup(context):
             ],
             output="screen",
         )
-        for controller in ["joint_state_broadcaster", "joint_trajectory_controller"]
+        for controller in ["fr3_arm_controller", "joint_state_broadcaster"]
     ]
 
     joint_state_publisher = Node(
@@ -222,5 +227,6 @@ def generate_launch_description():
         DeclareLaunchArgument("robot_ip", default_value="172.16.0.2", description="FR3 robot IP address (use 192.168.0.100 for fake hardware)."),
         DeclareLaunchArgument("namespace", default_value="", description="ROS namespace to launch the robot stack in (empty = no namespace)."),
         DeclareLaunchArgument("load_gripper", default_value="true", description="Include the Franka gripper in the robot description and launch its driver."),
+        DeclareLaunchArgument("kinematics_solver_timeout", default_value="0.1", description="MoveIt IK solver timeout override in seconds."),
         OpaqueFunction(function=launch_setup),
     ],)

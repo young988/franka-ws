@@ -50,7 +50,7 @@ def generate_launch_description():
 
     action_test = Node(
         package="franka_policy_runtime",
-        executable="action_test_node",
+        executable="action_test",
         name="action_test_runtime",
         output="screen",
         parameters=[
