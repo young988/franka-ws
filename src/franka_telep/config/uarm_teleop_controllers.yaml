@@ -1,0 +1,83 @@
+# uarm_teleop_controllers.yaml
+#
+# ros2_control configuration for FR3 arm under uArm teleoperation.
+#
+# Two controllers are registered:
+#   fr3_arm_controller    - standard joint_trajectory (used for homing)
+#   follower_controller   - TeleopFollowerController (joint impedance)
+#
+# Only ONE is active at a time (they share the same effort interfaces).
+# The launch flow activates fr3_arm_controller first for homing, then
+# switches to follower_controller for teleoperation.
+
+/**:
+  controller_manager:
+    ros__parameters:
+      update_rate: 1000
+
+      fr3_arm_controller:
+        type: joint_trajectory_controller/JointTrajectoryController
+
+      follower_controller:
+        type: franka_telep/TeleopFollowerController
+
+      joint_state_broadcaster:
+        type: joint_state_broadcaster/JointStateBroadcaster
+
+      franka_robot_state_broadcaster:
+        type: franka_robot_state_broadcaster/FrankaRobotStateBroadcaster
+
+/**:
+  fr3_arm_controller:
+    ros__parameters:
+      command_interfaces:
+        - effort
+      state_interfaces:
+        - position
+        - velocity
+      joints:
+        - fr3_joint1
+        - fr3_joint2
+        - fr3_joint3
+        - fr3_joint4
+        - fr3_joint5
+        - fr3_joint6
+        - fr3_joint7
+      gains:
+        fr3_joint1: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint2: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint3: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint4: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint5: { p: 80., d: 8., i: 0., i_clamp: 1. }
+        fr3_joint6: { p: 50., d: 5., i: 0., i_clamp: 1. }
+        fr3_joint7: { p: 20., d: 3., i: 0., i_clamp: 1. }
+
+/**:
+  follower_controller:
+    ros__parameters:
+      arm_id: "fr3"
+      input_topic: "/uarm_leader/joint_states"
+      input_topic_timeout: 300000000
+      k_gains: [600.0, 600.0, 600.0, 600.0, 250.0, 150.0, 50.0]
+      d_gains: [30.0, 30.0, 30.0, 30.0, 10.0, 10.0, 5.0]
+
+/**:
+  franka_robot_state_broadcaster:
+    ros__parameters:
+      lock_try_count: 5
+      lock_sleep_interval: 5
+      lock_log_error: false
+      lock_update_success: true
+
+/**:
+  joint_state_broadcaster:
+    ros__parameters:
+      arm_id: "fr3"
+      joints:
+        - fr3_joint1
+        - fr3_joint2
+        - fr3_joint3
+        - fr3_joint4
+        - fr3_joint5
+        - fr3_joint6
+        - fr3_joint7

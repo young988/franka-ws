@@ -1,0 +1,150 @@
+zhonglin_servo_reader:
+  ros__parameters:
+    port: /dev/ttyUSB0
+    baudrate: 115200
+    servo_ids: [0, 1, 2, 3, 4, 5, 6, 7]
+    publish_topic: /servo_angles
+    absolute_publish_topic: /servo_absolute_angles
+    publish_rate_hz: 120.0
+    serial_timeout_sec: 0.04
+    command_delay_sec: 0.006
+    exclusive_serial: true
+    read_retries: 3
+    pwm_min: 500
+    pwm_max: 2500
+    angle_range_deg: 270.0
+    step_threshold_deg: 0.2
+    smoothing_alpha: 1.0
+    danger_jump_deg: 90.0
+    calibrate_on_start: true
+
+franka_teleop:
+  ros__parameters:
+    servo_angles_topic: /servo_angles
+    servo_absolute_angles_topic: /servo_absolute_angles
+    use_absolute_servo_angles: true
+    uarm_home_abs_angles_deg: [102.06, 58.32, 162.0, 177.39, 148.365, 162.405, 118.125, 114.075]
+    latch_uarm_home_on_ready: true
+    robot_action_topic: /robot_action
+    robot_state_topic: /robot_state
+    joint_state_topic: /franka/joint_states
+    home_ready_topic: /franka_teleop/home_ready
+    require_home_ready: true
+    trajectory_action: /fr3_arm_controller/follow_joint_trajectory
+    gripper_move_action: /franka_gripper/move
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    use_current_as_initial: false
+    arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
+    joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
+    joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    joint_lower_limits: [-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159]
+    joint_upper_limits: [2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159]
+    joint_limit_margin_rad: 0.05
+    command_rate_hz: 50.0
+    trajectory_duration_sec: 0.06
+    trajectory_deadband_rad: 0.0015
+    target_filter_alpha: 0.5
+    target_deadband_rad: 0.003
+    cd_omega: 22.0
+    servo_filter_alpha: 0.5
+    max_joint_step_rad: 0.05
+    max_joint_velocity_rad_s: [0.45, 0.45, 0.45, 0.45, 0.65, 0.65, 0.65]
+    wait_for_action_servers: false
+    enable_trajectory: true
+    enable_gripper: true
+    gripper_servo_index: 7
+    gripper_open_offset_deg: 0.0
+    gripper_closed_offset_deg: -30.0
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+    gripper_speed: 0.1
+    gripper_deadband: 0.002
+
+franka_home_initializer:
+  ros__parameters:
+    joint_state_topic: /franka/joint_states
+    trajectory_action: /fr3_arm_controller/follow_joint_trajectory
+    ready_topic: /franka_teleop/home_ready
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7
+    home_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    trajectory_duration_sec: 6.0
+    goal_tolerance_rad: 0.03
+    ready_delay_sec: 0.5
+
+urdf_joint_state:
+  ros__parameters:
+    servo_angles_topic: /servo_angles
+    servo_absolute_angles_topic: /servo_absolute_angles
+    use_absolute_servo_angles: true
+    uarm_home_abs_angles_deg: [102.06, 58.32, 162.0, 177.39, 148.365, 162.405, 118.125, 114.075]
+    joint_state_topic: /teleop_preview/joint_states
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
+    joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
+    joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    joint_lower_limits: [-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159]
+    joint_upper_limits: [2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159]
+    joint_limit_margin_rad: 0.05
+    gripper_servo_index: 7
+    gripper_open_offset_deg: 0.0
+    gripper_closed_offset_deg: -30.0
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+
+uarm_leader_publisher:
+  ros__parameters:
+    servo_absolute_angles_topic: /servo_absolute_angles
+    home_ready_topic: /franka_teleop/home_ready
+    require_home_ready: true
+    use_absolute_servo_angles: true
+    uarm_home_abs_angles_deg: [102.06, 58.32, 162.0, 177.39, 148.365, 162.405, 118.125, 114.075]
+    latch_uarm_home_on_ready: true
+    publish_topic: /uarm_leader/joint_states
+    publish_rate_hz: 100.0
+    servo_filter_alpha: 0.7
+    servo_input_timeout_sec: 0.15
+    max_joint_velocity_rad_s: [0.35, 0.35, 0.35, 0.35, 0.5, 0.5, 0.5]
+    enable_gripper: true
+    gripper_move_action: /franka_gripper/move
+    gripper_grasp_action: /franka_gripper/grasp
+    gripper_servo_index: 7
+    gripper_threshold_deg: 15.0
+    gripper_hysteresis_deg: 5.0
+    gripper_min_width: 0.0
+    gripper_max_width: 0.08
+    gripper_speed: 0.1
+    gripper_force: 60.0
+    gripper_epsilon_inner: 0.05
+    gripper_epsilon_outer: 0.05
+    gripper_deadband: 0.002
+    gripper_debounce_sec: 0.5
+    arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
+    joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
+    joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    joint_lower_limits: [-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159]
+    joint_upper_limits: [2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159]
+    joint_limit_margin_rad: 0.05

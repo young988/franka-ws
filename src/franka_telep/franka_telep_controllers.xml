@@ -1,0 +1,10 @@
+<library path="franka_telep_controllers">
+  <class
+    name="franka_telep/TeleopFollowerController"
+    type="franka_telep::UarmFollowerController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      UArm leader JointState to FR3 effort-space joint impedance follower controller.
+    </description>
+  </class>
+</library>
