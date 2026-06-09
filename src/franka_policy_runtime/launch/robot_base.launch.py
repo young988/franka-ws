@@ -1,8 +1,8 @@
 """Launch the robot base stack (no policy, no sensors, no RViz).
 
 This launch owns the minimal graph needed to control the FR3 arm:
-robot_state_publisher, ros2_control with fr3_arm_controller, MoveIt
-move_group for IK, Franka gripper, joint state aggregation.
+robot_state_publisher, ros2_control, Franka gripper, and joint state
+aggregation. MoveIt is only started for the legacy trajectory mode.
 
 Design: other launches (bc_cube_stack, vla_policy) include this via
 IncludeLaunchDescription and append their own sensors + inference
@@ -67,7 +67,13 @@ def launch_setup(context):
     namespace = LaunchConfiguration("namespace")
     robot_ip = LaunchConfiguration("robot_ip")
     load_gripper = LaunchConfiguration("load_gripper")
+    controller_mode = LaunchConfiguration("controller_mode").perform(context)
     kinematics_solver_timeout = LaunchConfiguration("kinematics_solver_timeout")
+    if controller_mode not in {"cartesian_delta", "joint_position", "trajectory"}:
+        raise ValueError(
+            "controller_mode must be 'cartesian_delta', 'joint_position', or 'trajectory', "
+            f"got {controller_mode!r}"
+        )
 
     franka_xacro_file = os.path.join(
         get_package_share_directory("franka_description"),
@@ -157,6 +163,11 @@ def launch_setup(context):
         on_exit=Shutdown(),
     )
 
+    arm_controller = {
+        "cartesian_delta": "policy_twist_controller",
+        "joint_position": "policy_joint_controller",
+        "trajectory": "fr3_arm_controller",
+    }[controller_mode]
     controller_spawners = [
         ExecuteProcess(
             cmd=[
@@ -172,7 +183,7 @@ def launch_setup(context):
             ],
             output="screen",
         )
-        for controller in ["fr3_arm_controller", "joint_state_broadcaster"]
+        for controller in [arm_controller, "joint_state_broadcaster"]
     ]
 
     joint_state_publisher = Node(
@@ -211,14 +222,16 @@ def launch_setup(context):
         condition=IfCondition(load_gripper),
     )
 
-    return [
+    nodes = [
         robot_state_publisher,
         ros2_control_node,
         joint_state_publisher,
         franka_robot_state_broadcaster,
         gripper_launch,
-        move_group_node,
-    ] + controller_spawners
+    ]
+    if controller_mode == "trajectory":
+        nodes.append(move_group_node)
+    return nodes + controller_spawners
 
 
 def generate_launch_description():
@@ -227,6 +240,7 @@ def generate_launch_description():
         DeclareLaunchArgument("robot_ip", default_value="172.16.0.2", description="FR3 robot IP address (use 192.168.0.100 for fake hardware)."),
         DeclareLaunchArgument("namespace", default_value="", description="ROS namespace to launch the robot stack in (empty = no namespace)."),
         DeclareLaunchArgument("load_gripper", default_value="true", description="Include the Franka gripper in the robot description and launch its driver."),
+        DeclareLaunchArgument("controller_mode", default_value="cartesian_delta", description="Arm controller mode: cartesian_delta, joint_position, or trajectory."),
         DeclareLaunchArgument("kinematics_solver_timeout", default_value="0.1", description="MoveIt IK solver timeout override in seconds."),
         OpaqueFunction(function=launch_setup),
     ],)

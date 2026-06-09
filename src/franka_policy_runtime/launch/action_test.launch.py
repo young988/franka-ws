@@ -45,6 +45,7 @@ def generate_launch_description():
         launch_arguments={
             "robot_ip": LaunchConfiguration("robot_ip"),
             "load_gripper": LaunchConfiguration("load_gripper"),
+            "controller_mode": "trajectory",
         }.items(),
     )
 

@@ -10,6 +10,7 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>franka_msgs</exec_depend>
+  <exec_depend>franka_policy_controller</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>handeye_calibration</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>

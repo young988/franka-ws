@@ -13,6 +13,10 @@ franka_policy_runtime:
     object_camera_frame: eye_to_hand_camera_color_optical_frame
     object_min_pixels: 30
     joint_state_topic: /joint_states
+    control_mode: cartesian_delta
+    cartesian_delta_topic: /policy/cartesian_delta
+    joint_target_topic: /policy/joint_target
+    command_interval_sec: 0.5
     trajectory_action: /fr3_arm_controller/follow_joint_trajectory
     command_frame: fr3_link0
     tcp_frame: fr3_hand_tcp

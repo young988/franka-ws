@@ -10,6 +10,12 @@
       fr3_arm_controller:
         type: joint_trajectory_controller/JointTrajectoryController
 
+      policy_twist_controller:
+        type: franka_policy_controller/TwistIKController
+
+      policy_joint_controller:
+        type: franka_policy_controller/TwistIKController
+
       joint_state_broadcaster:
         type: joint_state_broadcaster/JointStateBroadcaster
 
@@ -23,6 +29,35 @@
       lock_sleep_interval: 5
       lock_log_error: false
       lock_update_success: true
+
+/**:
+  policy_twist_controller:
+    ros__parameters:
+      arm_id: fr3
+      command_mode: cartesian_delta
+      command_topic: /policy/cartesian_delta
+      base_link: base
+      tip_link: fr3_hand_tcp
+      robot_description_node: robot_state_publisher
+      max_translation_step: 0.03
+      max_rotation_step: 0.20
+      max_joint_delta: 0.30
+      max_torque_rate: 1.0
+      velocity_filter_alpha: 0.99
+      k_gains: [150.0, 150.0, 150.0, 150.0, 80.0, 50.0, 20.0]
+      d_gains: [15.0, 15.0, 15.0, 15.0, 8.0, 5.0, 3.0]
+
+/**:
+  policy_joint_controller:
+    ros__parameters:
+      arm_id: fr3
+      command_mode: joint_position
+      joint_command_topic: /policy/joint_target
+      max_joint_delta: 0.30
+      max_torque_rate: 1.0
+      velocity_filter_alpha: 0.99
+      k_gains: [600.0, 600.0, 600.0, 600.0, 250.0, 150.0, 50.0]
+      d_gains: [30.0, 30.0, 30.0, 30.0, 10.0, 10.0, 5.0]
 
 /**:
   fr3_arm_controller:
@@ -41,10 +76,10 @@
         - fr3_joint6
         - fr3_joint7
       gains:
-        fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint3: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint4: { p: 600., d: 30., i: 0., i_clamp: 1. }
-        fr3_joint5: { p: 250., d: 10., i: 0., i_clamp: 1. }
-        fr3_joint6: { p: 150., d: 10., i: 0., i_clamp: 1. }
-        fr3_joint7: { p: 50., d: 5., i: 0., i_clamp: 1. }
+        fr3_joint1: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint2: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint3: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint4: { p: 150., d: 15., i: 0., i_clamp: 1. }
+        fr3_joint5: { p: 80., d: 8., i: 0., i_clamp: 1. }
+        fr3_joint6: { p: 50., d: 5., i: 0., i_clamp: 1. }
+        fr3_joint7: { p: 20., d: 3., i: 0., i_clamp: 1. }

@@ -43,6 +43,7 @@ class UrdfJointStateNode(Node):
         self._arm_servo_indices = [int(value) for value in self.get_parameter("arm_servo_indices").value]
         if len(self._joint_names) != len(self._arm_servo_indices):
             raise ValueError("joint_names and arm_servo_indices must have the same length")
+        self._received_servo_input = False
 
         self._publisher = self.create_publisher(
             JointState,
@@ -61,19 +62,27 @@ class UrdfJointStateNode(Node):
             self._absolute_servo_callback,
             10,
         )
+        self._initial_state_timer = self.create_timer(0.5, self._publish_initial_state)
+        use_absolute = bool(self.get_parameter("use_absolute_servo_angles").value)
+        input_topic_parameter = (
+            "servo_absolute_angles_topic" if use_absolute else "servo_angles_topic"
+        )
         self.get_logger().info(
             f"URDF preview publishing {self.get_parameter('joint_state_topic').value} "
-            f"from {self.get_parameter('servo_angles_topic').value}"
+            f"from {self.get_parameter(input_topic_parameter).value}; "
+            "showing the initial pose until servo input arrives"
         )
 
     def _relative_servo_callback(self, msg: Float64MultiArray) -> None:
         if bool(self.get_parameter("use_absolute_servo_angles").value):
             return
+        self._received_servo_input = True
         self._publish_from_offsets([float(value) for value in msg.data])
 
     def _absolute_servo_callback(self, msg: Float64MultiArray) -> None:
         if not bool(self.get_parameter("use_absolute_servo_angles").value):
             return
+        self._received_servo_input = True
         current = [float(value) for value in msg.data]
         home = [float(value) for value in self.get_parameter("uarm_home_abs_angles_deg").value]
         offsets = [
@@ -81,6 +90,10 @@ class UrdfJointStateNode(Node):
             for index in range(max(len(current), len(home)))
         ]
         self._publish_from_offsets(offsets)
+
+    def _publish_initial_state(self) -> None:
+        if not self._received_servo_input:
+            self._publish_from_offsets([0.0] * (max(self._arm_servo_indices) + 1))
 
     def _publish_from_offsets(self, offsets: list[float]) -> None:
         lower_limits = [float(value) for value in self.get_parameter("joint_lower_limits").value]

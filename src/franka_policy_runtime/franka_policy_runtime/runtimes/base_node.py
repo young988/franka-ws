@@ -1,4 +1,4 @@
-"""Base policy runtime node — shared control / inference / IK loop.
+"""Base policy runtime node — shared observation, inference, and control loop.
 
 Subclasses (VLAPolicyRuntime, BCCubeStackPolicyRuntime) only need to
 override ``_declare_parameters()`` and ``_create_observer()``.
@@ -13,7 +13,7 @@ import numpy as np
 import rclpy
 from control_msgs.action import FollowJointTrajectory
 from franka_msgs.action import Move
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from moveit_msgs.msg import MoveItErrorCodes, RobotState
 from moveit_msgs.srv import GetPositionIK
 from rclpy.action import ActionClient
@@ -32,6 +32,8 @@ from franka_policy_runtime.utils.pose_math import (
     gripper_width_from_binary_action,
     invert_pose_xyzw,
     make_joint_trajectory,
+    policy_action_to_cartesian_delta,
+    policy_action_to_joint_positions,
     pose_msg_to_arrays,
     split_policy_action,
     transform_msg_to_arrays,
@@ -39,10 +41,11 @@ from franka_policy_runtime.utils.pose_math import (
 
 
 class PolicyRuntimeBase(Node):
-    """Async single-step inference-to-joint-trajectory bridge.
+    """Async single-step inference bridge.
 
-    Each control tick: observe → request one action → IK → send & track
-    trajectory goal → wait for result → next tick.
+    Continuous policies publish one-shot Cartesian deltas to the realtime
+    effort controller. Legacy absolute-pose workflows can still use MoveIt IK
+    and FollowJointTrajectory.
     """
 
     def __init__(self, node_name: str = "franka_policy_runtime") -> None:
@@ -55,6 +58,10 @@ class PolicyRuntimeBase(Node):
         self.declare_parameter("joint_state_topic", "/joint_states")
         self.declare_parameter("instruction_topic", "~/instruction")
         self.declare_parameter("trajectory_action", "/fr3_arm_controller/follow_joint_trajectory")
+        self.declare_parameter("control_mode", "cartesian_delta")
+        self.declare_parameter("cartesian_delta_topic", "/policy/cartesian_delta")
+        self.declare_parameter("joint_target_topic", "/policy/joint_target")
+        self.declare_parameter("command_interval_sec", 0.5)
         self.declare_parameter("command_frame", "fr3_link0")
         self.declare_parameter("tcp_frame", "fr3_hand_tcp")
         self.declare_parameter("tcp_pose_source", "tf")
@@ -103,6 +110,16 @@ class PolicyRuntimeBase(Node):
             self, FollowJointTrajectory,
             str(self.get_parameter("trajectory_action").value),
             callback_group=self._control_callback_group,
+        )
+        self._cartesian_delta_publisher = self.create_publisher(
+            Twist,
+            str(self.get_parameter("cartesian_delta_topic").value),
+            10,
+        )
+        self._joint_target_publisher = self.create_publisher(
+            JointState,
+            str(self.get_parameter("joint_target_topic").value),
+            10,
         )
         self._goal_active = False
         self._active_goal_handle = None
@@ -317,7 +334,7 @@ class PolicyRuntimeBase(Node):
         )
 
     def _control_tick(self) -> None:
-        """Observe → request → IK → send goal → (result cb chains)."""
+        """Observe, request one action, and dispatch it to the selected controller."""
         if self._goal_active:
             return
         self._goal_active = True
@@ -341,8 +358,32 @@ class PolicyRuntimeBase(Node):
 
             action = actions[0]
             self._observer.update_last_action(action)
-            self._handle_gripper(action)
+            control_mode = str(self.get_parameter("control_mode").value)
 
+            if control_mode == "cartesian_delta":
+                self._handle_gripper(action)
+                self._publish_cartesian_delta(action)
+                self._goal_active = False
+                self._schedule_control(
+                    max(0.01, float(self.get_parameter("command_interval_sec").value))
+                )
+                return
+
+            if control_mode == "joint_position":
+                self._publish_joint_positions(action)
+                self._goal_active = False
+                self._schedule_control(
+                    max(0.01, float(self.get_parameter("command_interval_sec").value))
+                )
+                return
+
+            if control_mode != "trajectory":
+                raise ValueError(
+                    "control_mode must be cartesian_delta, joint_position, or trajectory; "
+                    f"got {control_mode!r}"
+                )
+
+            self._handle_gripper(action)
             tcp_pose = self._update_observer_tcp_pose()
             if tcp_pose is None:
                 self._goal_active = False
@@ -399,6 +440,40 @@ class PolicyRuntimeBase(Node):
         self._schedule_control(0.0)
 
     # ---- shared helpers ------------------------------------------------
+
+    def _publish_cartesian_delta(self, action: np.ndarray) -> None:
+        delta = policy_action_to_cartesian_delta(
+            action,
+            action_scale=float(self.get_parameter("action_scale").value),
+            rotation_format=self._rotation_format,
+        )
+        message = Twist()
+        message.linear.x = float(delta[0])
+        message.linear.y = float(delta[1])
+        message.linear.z = float(delta[2])
+        message.angular.x = float(delta[3])
+        message.angular.y = float(delta[4])
+        message.angular.z = float(delta[5])
+        self._cartesian_delta_publisher.publish(message)
+        self.get_logger().info(
+            "Published Cartesian delta: "
+            f"linear={np.array2string(delta[:3], precision=4, suppress_small=True)} "
+            f"rotation_vector={np.array2string(delta[3:], precision=4, suppress_small=True)}",
+            throttle_duration_sec=1.0,
+        )
+
+    def _publish_joint_positions(self, action: np.ndarray) -> None:
+        positions = policy_action_to_joint_positions(action)
+        message = JointState()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.name = list(self._joint_names)
+        message.position = positions.tolist()
+        self._joint_target_publisher.publish(message)
+        self.get_logger().info(
+            "Published absolute joint target [rad]: "
+            f"{np.array2string(positions, precision=4, suppress_small=True)}",
+            throttle_duration_sec=1.0,
+        )
 
     def _send_trajectory_goal(self, joint_positions: np.ndarray) -> None:
         """Send a one-point trajectory goal, preempting any in-flight goal."""

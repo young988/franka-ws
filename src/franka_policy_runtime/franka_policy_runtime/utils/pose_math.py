@@ -195,6 +195,35 @@ def split_policy_action(action: np.ndarray) -> tuple[np.ndarray, float]:
     return arr[:6].copy(), float(arr[6])
 
 
+def policy_action_to_joint_positions(action: np.ndarray) -> np.ndarray:
+    """Interpret a 7D policy action as absolute FR3 joint angles in radians."""
+    return validate_action(action).copy()
+
+
+def policy_action_to_cartesian_delta(
+    action: np.ndarray,
+    *,
+    action_scale: float,
+    rotation_format: str = "axis_angle",
+) -> np.ndarray:
+    """Convert a policy action to a base-frame Cartesian delta twist."""
+    tcp_delta, _ = split_policy_action(action)
+    scaled_delta = tcp_delta * float(action_scale)
+    if rotation_format == "axis_angle":
+        return scaled_delta
+    if rotation_format != "rpy":
+        raise ValueError(f"unknown rotation_format: {rotation_format!r}")
+
+    quat = _quat_xyzw_from_rpy(scaled_delta[3:6])
+    vector_norm = float(np.linalg.norm(quat[:3]))
+    if vector_norm < 1.0e-12:
+        rotation_vector = np.zeros(3, dtype=np.float64)
+    else:
+        angle = 2.0 * math.atan2(vector_norm, float(quat[3]))
+        rotation_vector = quat[:3] * (angle / vector_norm)
+    return np.concatenate((scaled_delta[:3], rotation_vector))
+
+
 def apply_tcp_delta(
     current_position: np.ndarray,
     current_quat_xyzw: np.ndarray,

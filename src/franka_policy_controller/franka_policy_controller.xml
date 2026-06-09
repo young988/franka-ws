@@ -1,0 +1,10 @@
+<library path="franka_policy_controller">
+  <class
+    name="franka_policy_controller/TwistIKController"
+    type="franka_policy_controller::TwistIKController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Franka effort controller for Cartesian-delta IK or absolute joint-position policy commands.
+    </description>
+  </class>
+</library>

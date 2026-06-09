@@ -6,6 +6,8 @@ from franka_policy_runtime.utils.pose_math import (
     _quat_xyzw_from_axis_angle,
     apply_tcp_delta,
     gripper_width_from_binary_action,
+    policy_action_to_cartesian_delta,
+    policy_action_to_joint_positions,
     split_policy_action,
     step_toward_pose,
 )
@@ -48,6 +50,38 @@ def test_split_policy_action_separates_tcp_delta_and_gripper():
 
     assert tcp_delta.tolist() == [0.01, 0.02, -0.03, 0.1, -0.2, 0.3]
     assert gripper_delta == 0.04
+
+
+def test_policy_action_to_cartesian_delta_preserves_axis_angle():
+    action = np.array([0.02, -0.04, 0.06, 0.1, -0.2, 0.3, 1.0], dtype=float)
+
+    delta = policy_action_to_cartesian_delta(
+        action,
+        action_scale=0.5,
+        rotation_format="axis_angle",
+    )
+
+    assert delta == pytest.approx([0.01, -0.02, 0.03, 0.05, -0.1, 0.15])
+
+
+def test_policy_action_to_joint_positions_preserves_absolute_radians():
+    action = np.array([0.1, -0.2, 0.3, -1.4, 0.5, 1.6, -0.7], dtype=float)
+
+    positions = policy_action_to_joint_positions(action)
+
+    assert positions == pytest.approx(action)
+
+
+def test_policy_action_to_cartesian_delta_converts_rpy_to_rotation_vector():
+    action = np.array([0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 1.0], dtype=float)
+
+    delta = policy_action_to_cartesian_delta(
+        action,
+        action_scale=0.5,
+        rotation_format="rpy",
+    )
+
+    assert delta == pytest.approx([0.0, 0.0, 0.0, 0.1, 0.0, 0.0])
 
 
 def test_apply_tcp_delta_matches_isaaclab_scale_and_axis_angle_semantics():

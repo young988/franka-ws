@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>franka_policy_controller</name>
+  <version>0.1.0</version>
+  <description>Cartesian delta IK and joint impedance controller for Franka policy execution.</description>
+  <maintainer email="young@example.com">young</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>controller_interface</depend>
+  <depend>Eigen3</depend>
+  <depend>franka_semantic_components</depend>
+  <depend>geometry_msgs</depend>
+  <depend>hardware_interface</depend>
+  <depend>kdl_parser</depend>
+  <depend>orocos_kdl_vendor</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>realtime_tools</depend>
+  <depend>sensor_msgs</depend>
+  <depend>urdf</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

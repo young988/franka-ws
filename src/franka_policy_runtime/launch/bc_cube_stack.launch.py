@@ -39,6 +39,7 @@ def generate_launch_description():
         DeclareLaunchArgument("policy_port", default_value="8000", description="Policy server port."),
         DeclareLaunchArgument("start_policy_server", default_value="true", description="Launch the policy server subprocess from this launch file."),
         DeclareLaunchArgument("start_policy_runtime", default_value="true", description="Launch the policy runtime node from this launch file."),
+        DeclareLaunchArgument("control_mode", default_value="cartesian_delta", description="Policy output mode: cartesian_delta or joint_position."),
         # handeye
         DeclareLaunchArgument("publish_handeye_tf", default_value="true", description="Publish the hand-eye transform from pre-calibrated parameters."),
         DeclareLaunchArgument("handeye_method", default_value="best", description="Hand-eye solver method: tsai, park, dornaika, hoda, daniilidis, or best (auto-select)."),
@@ -74,6 +75,7 @@ def generate_launch_description():
         launch_arguments={
             "robot_ip": LaunchConfiguration("robot_ip"),
             "load_gripper": LaunchConfiguration("load_gripper"),
+            "controller_mode": LaunchConfiguration("control_mode"),
         }.items(),
     )
 
@@ -165,6 +167,7 @@ def generate_launch_description():
                 "camera_info_topic": LaunchConfiguration("camera_info_topic"),
                 "joint_state_topic": LaunchConfiguration("joint_state_topic"),
                 "gripper_move_action": LaunchConfiguration("gripper_move_action"),
+                "control_mode": LaunchConfiguration("control_mode"),
             },
         ],
         condition=IfCondition(LaunchConfiguration("start_policy_runtime")),
