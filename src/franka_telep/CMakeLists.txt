@@ -52,6 +52,7 @@ install(TARGETS franka_telep_controllers
 install(PROGRAMS
   scripts/franka_home_initializer
   scripts/franka_teleop
+  scripts/openvla_dataset_recorder
   scripts/uarm_leader_publisher
   scripts/urdf_joint_state
   scripts/zhonglin_servo_reader
@@ -61,6 +62,7 @@ install(PROGRAMS
 install(DIRECTORY
   config
   launch
+  openvla_rlds
   rviz
   urdf
   DESTINATION share/${PROJECT_NAME}
@@ -69,6 +71,11 @@ install(DIRECTORY
 install(FILES franka_telep_controllers.xml
   DESTINATION share/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(franka_telep_pytests test)
+endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(franka_telep_controllers)

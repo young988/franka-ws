@@ -211,7 +211,7 @@ def launch_setup(context):
         name="joint_state_publisher",
         namespace=namespace,
         parameters=[{
-            "source_list": ["franka/joint_states", "fr3_gripper/joint_states"],
+            "source_list": ["franka/joint_states", "franka_gripper/joint_states"],
             "rate": 30,
         }],
         output="screen",

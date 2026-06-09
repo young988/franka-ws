@@ -30,6 +30,7 @@ setup(
             "franka_teleop = franka_telep.franka_teleop_node:main",
             "urdf_joint_state = franka_telep.urdf_joint_state_node:main",
             "uarm_leader_publisher = franka_telep.uarm_leader_publisher:main",
+            "openvla_dataset_recorder = franka_telep.openvla_recorder_node:main",
         ],
     },
 )

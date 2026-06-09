@@ -5,7 +5,11 @@ import yaml
 
 import pytest
 
-from franka_telep.franka_mapping import map_gripper_offset_to_width, map_servo_offsets_to_joints
+from franka_telep.franka_mapping import (
+    FR3_READY_JOINTS,
+    map_gripper_offset_to_width,
+    map_servo_offsets_to_joints,
+)
 from franka_telep.zhonglin_protocol import pwm_to_angle, smooth_toward
 
 
@@ -93,6 +97,9 @@ def test_real_teleop_config_uses_absolute_home_and_home_gate():
     assert teleop["target_deadband_rad"] > 0.0
     assert teleop["joint_state_topic"] == "/franka/joint_states"
     assert teleop["initial_joint_positions"] == home["home_joint_positions"]
+    assert teleop["initial_joint_positions"] == FR3_READY_JOINTS
+    assert home["home_joint_positions"][3] == pytest.approx(-2.95)
+    assert home["home_joint_positions"][3] >= teleop["joint_lower_limits"][3] + teleop["joint_limit_margin_rad"]
     assert len(teleop["uarm_home_abs_angles_deg"]) == 8
 
 

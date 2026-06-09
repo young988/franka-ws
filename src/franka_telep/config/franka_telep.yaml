@@ -40,7 +40,7 @@ franka_teleop:
       - fr3_joint5
       - fr3_joint6
       - fr3_joint7
-    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.95, -0.0028241465, 1.6555054429, 0.8048119146]
     use_current_as_initial: false
     arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
     joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
@@ -81,7 +81,7 @@ franka_home_initializer:
       - fr3_joint5
       - fr3_joint6
       - fr3_joint7
-    home_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    home_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.95, -0.0028241465, 1.6555054429, 0.8048119146]
     trajectory_duration_sec: 6.0
     goal_tolerance_rad: 0.03
     ready_delay_sec: 0.5
@@ -101,7 +101,7 @@ urdf_joint_state:
       - fr3_joint5
       - fr3_joint6
       - fr3_joint7
-    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.95, -0.0028241465, 1.6555054429, 0.8048119146]
     arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
     joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
     joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -144,7 +144,38 @@ uarm_leader_publisher:
     arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
     joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
     joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.9, -0.0028241465, 1.6555054429, 0.8048119146]
+    initial_joint_positions: [-0.0058975655, -1.4723245927, 0.0058916495, -2.95, -0.0028241465, 1.6555054429, 0.8048119146]
     joint_lower_limits: [-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159]
     joint_upper_limits: [2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159]
     joint_limit_margin_rad: 0.05
+
+openvla_dataset_recorder:
+  ros__parameters:
+    image_topic: /eye_to_hand_camera/eye_to_hand_camera/color/image_raw
+    wrist_image_topic: ""
+    joint_state_topic: /joint_states
+    gripper_joint_state_topic: /franka_gripper/joint_states
+    tcp_pose_topic: /franka_robot_state_broadcaster/current_pose
+    home_ready_topic: /franka_teleop/home_ready
+    recording_topic: /franka_teleop/dataset_recording
+    instruction_topic: /franka_teleop/dataset_instruction
+    dataset_root: ~/franka_openvla_data
+    dataset_name: franka_teleop
+    instruction: pick up the object
+    image_size: 256
+    sample_rate_hz: 10.0
+    max_data_age_sec: 0.2
+    gripper_open_threshold: 0.04
+    require_home_ready: true
+    auto_start: true
+    joint_names:
+      - fr3_joint1
+      - fr3_joint2
+      - fr3_joint3
+      - fr3_joint4
+      - fr3_joint5
+      - fr3_joint6
+      - fr3_joint7
+    gripper_joint_names:
+      - fr3_finger_joint1
+      - fr3_finger_joint2
