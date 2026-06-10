@@ -67,6 +67,7 @@ franka_teleop:
     gripper_max_width: 0.08
     gripper_speed: 0.1
     gripper_deadband: 0.002
+    gripper_command_topic: /franka_teleop/gripper_command
 
 franka_home_initializer:
   ros__parameters:
@@ -141,6 +142,7 @@ uarm_leader_publisher:
     gripper_epsilon_outer: 0.05
     gripper_deadband: 0.002
     gripper_debounce_sec: 0.5
+    gripper_command_topic: /uarm_leader/gripper_command
     arm_servo_indices: [0, 1, 2, 3, 4, 5, 6]
     joint_signs: [1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0]
     joint_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -168,6 +170,7 @@ openvla_dataset_recorder:
     gripper_open_threshold: 0.04
     require_home_ready: true
     auto_start: true
+    gripper_command_topic: /uarm_leader/gripper_command
     joint_names:
       - fr3_joint1
       - fr3_joint2

@@ -9,7 +9,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, JointState
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float64, String
 
 from franka_telep.franka_mapping import FR3_JOINT_NAMES
 from franka_telep.openvla_dataset import (
@@ -59,6 +59,7 @@ class OpenVLADatasetRecorder(Node):
         self.declare_parameter("joint_names", FR3_JOINT_NAMES)
         self.declare_parameter(
             "gripper_joint_names", ["fr3_finger_joint1", "fr3_finger_joint2"])
+        self.declare_parameter("gripper_command_topic", "")
 
         self._lock = Lock()
         self._joint_names = [str(value) for value in self.get_parameter("joint_names").value]
@@ -69,6 +70,7 @@ class OpenVLADatasetRecorder(Node):
         self._latest_joints: tuple[np.ndarray, float] | None = None
         self._latest_gripper: tuple[float, float] | None = None
         self._latest_wrist_image: tuple[np.ndarray, float] | None = None
+        self._latest_gripper_command: tuple[float, float] | None = None
         self._last_sample_time_sec = float("-inf")
         self._pending_sample: ObservationSample | None = None
         self._writer: OpenVLAEpisodeWriter | None = None
@@ -115,6 +117,10 @@ class OpenVLADatasetRecorder(Node):
             self._instruction_callback,
             10,
         )
+        gripper_cmd_topic = str(self.get_parameter("gripper_command_topic").value).strip()
+        if gripper_cmd_topic:
+            self.create_subscription(
+                Float64, gripper_cmd_topic, self._gripper_command_callback, 10)
         ready_qos = QoSProfile(depth=1)
         ready_qos.reliability = ReliabilityPolicy.RELIABLE
         ready_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -176,6 +182,12 @@ class OpenVLADatasetRecorder(Node):
         received = self._message_time_sec(message.header.stamp)
         with self._lock:
             self._latest_gripper = gripper_width, received
+
+    def _gripper_command_callback(self, message: Float64) -> None:
+        with self._lock:
+            self._latest_gripper_command = (
+                float(message.data),
+                self.get_clock().now().nanoseconds * 1e-9)
 
     def _wrist_image_callback(self, message: Image) -> None:
         try:
@@ -291,17 +303,32 @@ class OpenVLADatasetRecorder(Node):
         if (
             self._latest_pose is None
             or self._latest_joints is None
-            or self._latest_gripper is None
         ):
             self.get_logger().warn(
-                "Waiting for TCP pose, arm joints, and gripper state",
+                "Waiting for TCP pose and arm joints",
                 throttle_duration_sec=2.0,
             )
             return None
+        max_age = max(0.0, float(self.get_parameter("max_data_age_sec").value))
+        # Prefer commanded gripper width (user intent) over measured position.
+        # Measured position can be misread as "open" when the grasp action
+        # force-controls to a non-zero stop-width on contact.
+        gripper_width = None
+        if self._latest_gripper_command is not None:
+            cmd_width, cmd_time = self._latest_gripper_command
+            if abs(timestamp_sec - cmd_time) <= max_age:
+                gripper_width = cmd_width
+        if gripper_width is None:
+            if self._latest_gripper is None:
+                self.get_logger().warn(
+                    "Waiting for gripper state (joint states or command)",
+                    throttle_duration_sec=2.0,
+                )
+                return None
+            gripper_width, _ = self._latest_gripper
+
         position, quaternion, pose_time = self._latest_pose
         joints, joint_time = self._latest_joints
-        gripper_width, _ = self._latest_gripper
-        max_age = max(0.0, float(self.get_parameter("max_data_age_sec").value))
         if max(
             abs(timestamp_sec - pose_time),
             abs(timestamp_sec - joint_time),

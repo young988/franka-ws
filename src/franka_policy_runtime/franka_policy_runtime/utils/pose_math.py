@@ -313,7 +313,12 @@ def step_toward_pose(
 
 
 def gripper_width_from_binary_action(action_value: float, *, min_width: float, max_width: float) -> float:
-    return float(min_width if float(action_value) < 0.0 else max_width)
+    """Map a binary-policy gripper dimension to physical width.
+
+    Uses a mid-point threshold so that both ``0.0/1.0`` (bridge_orig) and
+    ``-1.0/+1.0`` (fractal) conventions translate correctly to open/close.
+    """
+    return float(min_width if float(action_value) < 0.5 else max_width)
 
 
 def make_joint_trajectory(

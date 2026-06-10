@@ -9,7 +9,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float64MultiArray
+from std_msgs.msg import Bool, Float64, Float64MultiArray
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from franka_telep.franka_mapping import (
@@ -65,6 +65,7 @@ class FrankaTeleopNode(Node):
         self.declare_parameter("gripper_max_width", 0.08)
         self.declare_parameter("gripper_speed", 0.05)
         self.declare_parameter("gripper_deadband", 0.002)
+        self.declare_parameter("gripper_command_topic", "/franka_teleop/gripper_command")
 
         self._joint_names = [str(value) for value in self.get_parameter("joint_names").value]
         self._arm_servo_indices = [int(value) for value in self.get_parameter("arm_servo_indices").value]
@@ -122,6 +123,11 @@ class FrankaTeleopNode(Node):
         self._state_pub = self.create_publisher(
             Float64MultiArray,
             str(self.get_parameter("robot_state_topic").value),
+            10,
+        )
+        self._gripper_cmd_pub = self.create_publisher(
+            Float64,
+            str(self.get_parameter("gripper_command_topic").value),
             10,
         )
         self.create_subscription(
@@ -334,6 +340,7 @@ class FrankaTeleopNode(Node):
         if bool(self.get_parameter("enable_trajectory").value):
             self._send_trajectory_if_needed(target)
         if bool(self.get_parameter("enable_gripper").value):
+            self._gripper_cmd_pub.publish(Float64(data=self._current_gripper_width_or_default()))
             self._send_gripper_if_needed()
 
     def _limited_target(self, desired: list[float]) -> list[float]:

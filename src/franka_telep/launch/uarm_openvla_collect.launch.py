@@ -101,6 +101,7 @@ def generate_launch_description():
                 "auto_start": ParameterValue(
                     LaunchConfiguration("auto_start"), value_type=bool
                 ),
+                "gripper_command_topic": "/uarm_leader/gripper_command",
             },
         ],
     )

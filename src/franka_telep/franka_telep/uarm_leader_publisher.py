@@ -19,7 +19,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float64MultiArray
+from std_msgs.msg import Bool, Float64, Float64MultiArray
 
 from franka_telep.franka_mapping import (
     FR3_JOINT_NAMES,
@@ -75,6 +75,7 @@ class UarmLeaderPublisher(Node):
         self.declare_parameter("gripper_epsilon_outer", 0.05)
         self.declare_parameter("gripper_deadband", 0.002)
         self.declare_parameter("gripper_debounce_sec", 0.5)
+        self.declare_parameter("gripper_command_topic", "/uarm_leader/gripper_command")
 
         self._arm_servo_indices = [int(v) for v in self.get_parameter("arm_servo_indices").value]
         self._joint_names = list(FR3_JOINT_NAMES)
@@ -122,6 +123,11 @@ class UarmLeaderPublisher(Node):
         self._pub = self.create_publisher(
             JointState,
             str(self.get_parameter("publish_topic").value),
+            10,
+        )
+        self._gripper_cmd_pub = self.create_publisher(
+            Float64,
+            str(self.get_parameter("gripper_command_topic").value),
             10,
         )
 
@@ -254,6 +260,7 @@ class UarmLeaderPublisher(Node):
         self._pub.publish(msg)
 
         if bool(self.get_parameter("enable_gripper").value):
+            self._gripper_cmd_pub.publish(Float64(data=self._current_gripper_width_or_default()))
             self._send_gripper_if_needed()
 
     def _servo_input_timed_out(self) -> bool:
@@ -350,6 +357,12 @@ class UarmLeaderPublisher(Node):
                 self._gripper_last_change = now
 
         return min_width if self._gripper_is_closed else max_width
+
+    def _current_gripper_width_or_default(self) -> float:
+        width = self._current_gripper_width_or_nan()
+        if math.isnan(width):
+            return float(self.get_parameter("gripper_max_width").value)
+        return width
 
 
 def main(args: list[str] | None = None) -> None:

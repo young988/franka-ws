@@ -50,6 +50,7 @@ install(TARGETS franka_telep_controllers
 )
 
 install(PROGRAMS
+  scripts/episode_replay
   scripts/franka_home_initializer
   scripts/franka_teleop
   scripts/openvla_dataset_recorder
