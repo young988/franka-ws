@@ -16,8 +16,6 @@ frames_*.gv
 frames_*.pdf
 
 src/IsaacLab/
-src/franka_ros/
-src/realsense-ros/
 src/.vscode/
 .codegraph/
 
