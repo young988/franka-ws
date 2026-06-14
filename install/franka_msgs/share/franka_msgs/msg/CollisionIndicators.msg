@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_msgs/msg/CollisionIndicators.msg
+/home/young/ros2_ws/src/franka_ros/franka_msgs/msg/CollisionIndicators.msg

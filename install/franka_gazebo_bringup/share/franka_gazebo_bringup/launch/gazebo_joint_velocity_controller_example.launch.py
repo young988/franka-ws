@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_gazebo/franka_gazebo_bringup/launch/gazebo_joint_velocity_controller_example.launch.py
+/home/young/ros2_ws/src/franka_ros/franka_gazebo/franka_gazebo_bringup/launch/gazebo_joint_velocity_controller_example.launch.py

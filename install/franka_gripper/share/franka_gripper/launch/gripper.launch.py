@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_gripper/launch/gripper.launch.py
+/home/young/ros2_ws/src/franka_ros/franka_gripper/launch/gripper.launch.py

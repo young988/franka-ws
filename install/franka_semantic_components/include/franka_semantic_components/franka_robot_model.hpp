@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_semantic_components/include/franka_semantic_components/franka_robot_model.hpp
+/home/young/ros2_ws/src/franka_ros/franka_semantic_components/include/franka_semantic_components/franka_robot_model.hpp

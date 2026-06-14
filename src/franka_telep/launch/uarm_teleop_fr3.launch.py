@@ -87,6 +87,7 @@ def launch_setup(context):
         name="zhonglin_servo_reader",
         output="screen",
         parameters=[config_file, {"port": servo_port}],
+        on_exit=Shutdown(reason="Zhonglin servo reader exited"),
     )
 
     uarm_leader_publisher = Node(
@@ -274,7 +275,8 @@ def generate_launch_description():
             description="Path to franka_telep.yaml (servo + mapping params)",
         ),
         DeclareLaunchArgument(
-            "servo_port", default_value="/dev/ttyUSB0",
+            "servo_port",
+            default_value="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
             description="Serial port for the Zhonglin/uArm servo bus",
         ),
         DeclareLaunchArgument(

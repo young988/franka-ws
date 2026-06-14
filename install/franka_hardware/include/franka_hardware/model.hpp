@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_hardware/include/franka_hardware/model.hpp
+/home/young/ros2_ws/src/franka_ros/franka_hardware/include/franka_hardware/model.hpp

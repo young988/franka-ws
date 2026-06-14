@@ -54,8 +54,7 @@ endif()
 add_library(franka_msgs::franka_msgs__rosidl_generator_py SHARED IMPORTED)
 
 set_target_properties(franka_msgs::franka_msgs__rosidl_generator_py PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES "/home/young/miniconda3/lib/python3.10/site-packages/numpy/core/include"
-  INTERFACE_LINK_LIBRARIES "franka_msgs::franka_msgs__rosidl_generator_c;/home/young/miniconda3/lib/libpython3.10.so;franka_msgs::franka_msgs__rosidl_typesupport_c;std_msgs::std_msgs__rosidl_generator_py;builtin_interfaces::builtin_interfaces__rosidl_generator_py;geometry_msgs::geometry_msgs__rosidl_generator_py;sensor_msgs::sensor_msgs__rosidl_generator_py;action_msgs::action_msgs__rosidl_generator_py;unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_py"
+  INTERFACE_LINK_LIBRARIES "franka_msgs::franka_msgs__rosidl_generator_c;/usr/lib/x86_64-linux-gnu/libpython3.10.so;franka_msgs::franka_msgs__rosidl_typesupport_c;std_msgs::std_msgs__rosidl_generator_py;builtin_interfaces::builtin_interfaces__rosidl_generator_py;geometry_msgs::geometry_msgs__rosidl_generator_py;sensor_msgs::sensor_msgs__rosidl_generator_py;action_msgs::action_msgs__rosidl_generator_py;unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_py"
 )
 
 if(CMAKE_VERSION VERSION_LESS 2.8.12)

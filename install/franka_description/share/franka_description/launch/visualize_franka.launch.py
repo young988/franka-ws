@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_description/launch/visualize_franka.launch.py
+/home/young/ros2_ws/src/franka_description/launch/visualize_franka.launch.py

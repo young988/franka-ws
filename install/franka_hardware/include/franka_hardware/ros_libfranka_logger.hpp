@@ -1,1 +1,1 @@
-/home/young/ros2_ws/src/franka_ros/src/franka_hardware/include/franka_hardware/ros_libfranka_logger.hpp
+/home/young/ros2_ws/src/franka_ros/franka_hardware/include/franka_hardware/ros_libfranka_logger.hpp
