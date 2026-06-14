@@ -1,7 +1,11 @@
 [submodule "src/franka_ros"]
 	path = src/franka_ros
 	url = https://github.com/frankaemika/franka_ros2.git
-	branch = humble
+	branch = v2.0.4
+[submodule "src/franka_description"]
+	path = src/franka_description
+	url = https://github.com/frankarobotics/franka_description.git
+	branch = 1.0.0
 [submodule "src/realsense-ros"]
 	path = src/realsense-ros
 	url = https://github.com/realsenseai/realsense-ros.git
